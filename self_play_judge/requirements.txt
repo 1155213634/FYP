@@ -1,0 +1,13 @@
+# Install into the selected project environment after checking platform support.
+# Keep versions unpinned until the first model-load and DPO smoke tests pass.
+torch
+transformers
+datasets
+peft
+trl
+accelerate
+PyYAML
+pytest
+
+# Optional: add only if 4-bit loading works in the chosen Windows/WSL environment.
+# bitsandbytes

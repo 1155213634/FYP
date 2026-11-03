@@ -1,0 +1,42 @@
+# Pilot template. Replace null model IDs and review all budgets before running.
+# Keep train and audit splits disjoint. Audit answers must never enter prompts or DPO data.
+
+experiment:
+  name: gsm8k_self_play_pilot
+  seed: 0 # TODO: run multiple seeds for the final comparison.
+  output_dir: outputs/gsm8k_self_play_pilot
+
+data:
+  dataset_id: openai/gsm8k
+  dataset_config: main
+  train_split: train
+  audit_split: test
+  train_question_limit: 128 # TODO: increase only after a successful pilot.
+  audit_question_limit: 128 # TODO: proposal target is 200.
+
+models:
+  policy_id: null # TODO: select after the no-training capability and VRAM checks.
+  judge_id: null # TODO: same policy checkpoint for the primary self-play comparison.
+
+generation:
+  rollouts_per_question: 4
+  temperature: 0.9
+  top_p: 0.95
+  max_new_tokens: 640
+
+training:
+  iterations: 2
+  method: dpo
+  lora_rank: 8
+  learning_rate: 0.00002
+  beta: 0.1
+  gradient_checkpointing: true
+  load_in_4bit: false # Enable only after testing compatible dependencies.
+
+evaluation:
+  answer_match: exact_normalized
+  save_raw_generations: true
+  save_judgments: true
+
+# TODO: Add a separate judge-mode selection when the shared interfaces are implemented.
+# Compare `anchored` and `deanchored` with all other run settings held fixed.
