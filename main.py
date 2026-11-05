@@ -2,13 +2,16 @@ import os
 import json
 import re
 import tempfile
+from pathlib import Path
+
 import docker
 import torch
 from datasets import Dataset
 from trl import GRPOTrainer, GRPOConfig
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-LOG_FILE = "training_rollouts.jsonl"
+BASE_DIR = Path(__file__).resolve().parent
+LOG_FILE = BASE_DIR / "training_rollouts.jsonl"
 
 
 # ==========================================
@@ -115,15 +118,26 @@ except Exception as e:
 # ==========================================
 # 2. UTILITIES
 # ==========================================
+def strip_thinking_blocks(text: str) -> str:
+    if not isinstance(text, str):
+        return ""
+    text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL | re.IGNORECASE)
+    text = re.sub(
+        r"<\s*think\s*>.*?<\s*/\s*think\s*>", "", text, flags=re.DOTALL | re.IGNORECASE
+    )
+    return text.strip()
+
+
 def parse_proposer_output(proposer_text: str):
     """
     Parses proposer text into problem description and test assertions.
     Returns (None, None) if required formatting tags are missing.
     """
+    proposer_text = strip_thinking_blocks(proposer_text)
     if "[PROBLEM]" not in proposer_text or "[TESTS]" not in proposer_text:
         return None, None
 
-    parts = proposer_text.split("[TESTS]")
+    parts = proposer_text.split("[TESTS]", 1)
     problem_desc = parts[0].replace("[PROBLEM]", "").strip()
     test_code = parts[1].strip()
     return problem_desc, test_code
@@ -134,6 +148,7 @@ def clean_code_output(text: str) -> str:
     Extracts pure Python code if enclosed in markdown code blocks,
     otherwise returns the stripped raw text.
     """
+    text = strip_thinking_blocks(text)
     pattern = r"```(?:python)?\n(.*?)\n```"
     matches = re.findall(pattern, text, re.DOTALL)
     if matches:
@@ -145,6 +160,7 @@ def log_rollout(
     seed_prompt, proposer_completion, answerer_completion, reward, metadata=None
 ):
     """Appends a complete self-play rollout record (Proposer + Answerer) to JSONL."""
+    LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
     record = {
         # "seed_prompt": seed_prompt,
         "proposer_completion": proposer_completion,
@@ -154,18 +170,36 @@ def log_rollout(
     }
     with open(LOG_FILE, "a", encoding="utf-8") as f:
         f.write(json.dumps(record, ensure_ascii=False) + "\n")
+        f.flush()
 
 
 # ==========================================
 # 3. SELF-PLAY TRAINING ORCHESTRATION
 # ==========================================
+def apply_chat_template_with_no_thinking(tokenizer, messages):
+    try:
+        return tokenizer.apply_chat_template(
+            messages,
+            tokenize=False,
+            add_generation_prompt=True,
+            enable_thinking=False,
+        )
+    except TypeError:
+        return tokenizer.apply_chat_template(
+            messages,
+            tokenize=False,
+            add_generation_prompt=True,
+        )
+
+
 def main():
     # Cleanup log file
+    LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
     with open(LOG_FILE, "w", encoding="utf-8") as f:
         pass
 
     # MODEL_ID = "Qwen/Qwen2.5-Coder-1.5B-Instruct"
-    MODEL_ID = "HuggingFaceTB/SmolLM2-360M-Instruct"  # Small test
+    MODEL_ID = "Qwen/Qwen3-1.7B"
     sandbox = DockerSandbox(timeout_seconds=3)
 
     tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
@@ -193,7 +227,7 @@ def main():
         per_device_train_batch_size=1,
         gradient_accumulation_steps=4,
         num_generations=4,  # Group size (G) for GRPO
-        max_completion_length=256,
+        max_completion_length=128,
         logging_steps=1,
         bf16=True,
         report_to="none",
@@ -245,7 +279,14 @@ def main():
 
                 with torch.no_grad():
                     generated_output = answerer_model.generate(
-                        **inputs, max_new_tokens=256, do_sample=True, temperature=0.7
+                        **inputs,
+                        max_new_tokens=128,
+                        do_sample=True,
+                        temperature=0.2,
+                        top_p=0.9,
+                        repetition_penalty=1.15,
+                        pad_token_id=tokenizer.eos_token_id,
+                        eos_token_id=tokenizer.eos_token_id,
                     )
 
                 generated_tokens = generated_output[0][input_len:]
@@ -254,7 +295,6 @@ def main():
                     generated_tokens, skip_special_tokens=True
                 )
                 solution = clean_code_output(raw_solution)
-                print(f"Answerer Solution:\n{solution}")
 
                 # Reward heuristic: Target problems that are challenging yet solvable (~0.5 pass score)
                 score = sandbox.evaluate(solution, test_code)
@@ -317,9 +357,7 @@ def main():
         max_retries = 3
 
         for attempt in range(max_retries):
-            text_prompt = tokenizer.apply_chat_template(
-                messages, tokenize=False, add_generation_prompt=True
-            )
+            text_prompt = apply_chat_template_with_no_thinking(tokenizer, messages)
             inputs = tokenizer(text_prompt, return_tensors="pt").to(
                 proposer_model.device
             )
@@ -328,7 +366,14 @@ def main():
 
             with torch.no_grad():
                 out = proposer_model.generate(
-                    **inputs, max_new_tokens=256, do_sample=True, temperature=0.7
+                    **inputs,
+                    max_new_tokens=128,
+                    do_sample=True,
+                    temperature=0.2,
+                    top_p=0.9,
+                    repetition_penalty=1.15,
+                    pad_token_id=tokenizer.eos_token_id,
+                    eos_token_id=tokenizer.eos_token_id,
                 )
 
             generated_tokens = out[0][input_len:]
