@@ -10,36 +10,48 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 LOG_FILE = "training_rollouts.jsonl"
 
+
 # ==========================================
 # 1. SECURE DOCKER SANDBOX
 # ==========================================
 class DockerSandbox:
     def __init__(self, image_name: str = "python:3.10-slim", timeout_seconds: int = 3):
-        self.client = docker.from_env()
+        self.client = None
         self.image_name = image_name
         self.timeout = timeout_seconds
+        try:
+            self.client = docker.from_env()
+        except Exception as exc:
+            print(
+                f"Warning: Docker is unavailable; sandbox evaluation is disabled. Details: {exc}"
+            )
 
     def evaluate(self, solution_code: str, test_code: str) -> float:
-        full_script = f"""
-                        try:
-                        {self._indent_code(solution_code)}
-                        except Exception as e:
-                            print(f"Runtime Error: {{e}}")
-                            exit(1)
+        if self.client is None:
+            return 0.0
 
-                        try:
-                        {self._indent_code(test_code)}
-                            print("ALL_TESTS_PASSED")
-                            exit(0)
-                        except AssertionError as ae:
-                            print(f"Assertion Failed: {{ae}}")
-                            exit(1)
-                        except Exception as e:
-                            print(f"Test Error: {{e}}")
-                            exit(1)
-                        """
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
-            f.write(full_script)
+        full_script = f"""
+try:
+{self._indent_code(self._sanitize_code(solution_code))}
+except Exception as e:
+    print(f"Runtime Error: {{e}}")
+    exit(1)
+
+try:
+{self._indent_code(self._sanitize_code(test_code))}
+    print("ALL_TESTS_PASSED")
+    exit(0)
+except AssertionError as ae:
+    print(f"Assertion Failed: {{ae}}")
+    exit(1)
+except Exception as e:
+    print(f"Test Error: {{e}}")
+    exit(1)
+"""
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".py", delete=False, encoding="utf-8"
+        ) as f:
+            f.write(self._sanitize_code(full_script))
             temp_file_path = f.name
 
         # Get the actual random filename inside the mounted /app directory
@@ -50,34 +62,54 @@ class DockerSandbox:
             container = self.client.containers.run(
                 image=self.image_name,
                 command=f"python /app/{script_name}",
-                volumes={os.path.dirname(temp_file_path): {'bind': '/app', 'mode': 'ro'}},
-                working_dir='/app',
+                volumes={
+                    os.path.dirname(temp_file_path): {"bind": "/app", "mode": "ro"}
+                },
+                working_dir="/app",
                 network_mode="none",
                 mem_limit="256m",
                 cpu_period=100000,
                 cpu_quota=50000,
                 pids_limit=64,
                 detach=True,
-                remove=False
+                remove=False,
             )
             result = container.wait(timeout=self.timeout)
-            logs = container.logs(stdout=True, stderr=True).decode('utf-8')
-            
-            if result.get('StatusCode', -1) == 0 and "ALL_TESTS_PASSED" in logs:
+            logs = container.logs(stdout=True, stderr=True).decode(
+                "utf-8", errors="replace"
+            )
+
+            if result.get("StatusCode", -1) == 0 and "ALL_TESTS_PASSED" in logs:
                 return 1.0
             return 0.0
         except Exception:
             return 0.0
         finally:
             if container:
-                try: container.remove(force=True)
-                except Exception: pass
+                try:
+                    container.remove(force=True)
+                except Exception:
+                    pass
             if os.path.exists(temp_file_path):
-                try: os.unlink(temp_file_path)
-                except Exception: pass
+                try:
+                    os.unlink(temp_file_path)
+                except Exception:
+                    pass
+
+    def _sanitize_code(self, code: str) -> str:
+        if not isinstance(code, str):
+            return ""
+        return (
+            code.replace("\x00", "").encode("utf-8", errors="replace").decode("utf-8")
+        )
 
     def _indent_code(self, code: str, spaces: int = 4) -> str:
-        return "\n".join([" " * spaces + line if line.strip() else line for line in code.splitlines()])
+        return "\n".join(
+            [
+                " " * spaces + line if line.strip() else line
+                for line in code.splitlines()
+            ]
+        )
 
 
 # ==========================================
@@ -90,7 +122,7 @@ def parse_proposer_output(proposer_text: str):
     """
     if "[PROBLEM]" not in proposer_text or "[TESTS]" not in proposer_text:
         return None, None
-        
+
     parts = proposer_text.split("[TESTS]")
     problem_desc = parts[0].replace("[PROBLEM]", "").strip()
     test_code = parts[1].strip()
@@ -108,14 +140,17 @@ def clean_code_output(text: str) -> str:
         return matches[0].strip()
     return text.strip()
 
-def log_rollout(seed_prompt, proposer_completion, answerer_completion, reward, metadata=None):
+
+def log_rollout(
+    seed_prompt, proposer_completion, answerer_completion, reward, metadata=None
+):
     """Appends a complete self-play rollout record (Proposer + Answerer) to JSONL."""
     record = {
         # "seed_prompt": seed_prompt,
         "proposer_completion": proposer_completion,
         "answerer_completion": answerer_completion,
         "reward": reward,
-        "metadata": metadata or {}
+        "metadata": metadata or {},
     }
     with open(LOG_FILE, "a", encoding="utf-8") as f:
         f.write(json.dumps(record, ensure_ascii=False) + "\n")
@@ -130,7 +165,7 @@ def main():
         pass
 
     # MODEL_ID = "Qwen/Qwen2.5-Coder-1.5B-Instruct"
-    MODEL_ID = "HuggingFaceTB/SmolLM2-360M-Instruct"    # Small test
+    MODEL_ID = "HuggingFaceTB/SmolLM2-360M-Instruct"  # Small test
     sandbox = DockerSandbox(timeout_seconds=3)
 
     tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
@@ -138,13 +173,17 @@ def main():
 
     # Load shared or separate models for Proposer and Answerer
     print("Loading models...")
-    proposer_model = AutoModelForCausalLM.from_pretrained(MODEL_ID, dtype=torch.bfloat16, device_map="auto")
-    answerer_model = AutoModelForCausalLM.from_pretrained(MODEL_ID, dtype=torch.bfloat16, device_map="auto")
+    proposer_model = AutoModelForCausalLM.from_pretrained(
+        MODEL_ID, dtype=torch.bfloat16, device_map="auto"
+    )
+    answerer_model = AutoModelForCausalLM.from_pretrained(
+        MODEL_ID, dtype=torch.bfloat16, device_map="auto"
+    )
 
     # Initial Seed Prompts for Proposer
     seed_prompts = [
         "Create an algorithmic problem involving arrays and target sums.",
-        "Create an algorithmic problem involving string reversal or parsing."
+        "Create an algorithmic problem involving string reversal or parsing.",
     ]
 
     # Common TRL configuration
@@ -153,11 +192,11 @@ def main():
         learning_rate=1e-5,
         per_device_train_batch_size=1,
         gradient_accumulation_steps=4,
-        num_generations=4,          # Group size (G) for GRPO
+        num_generations=4,  # Group size (G) for GRPO
         max_completion_length=256,
         logging_steps=1,
         bf16=True,
-        report_to="none"
+        report_to="none",
     )
 
     # --- ALTERNATING SELF-PLAY TRAINING LOOP ---
@@ -182,31 +221,41 @@ def main():
             rewards = []
             answerer_model.eval()
             for prompt, completion in zip(prompts, completions):
-                comp_text = completion[0]["content"] if isinstance(completion, list) else completion
+                comp_text = (
+                    completion[0]["content"]
+                    if isinstance(completion, list)
+                    else completion
+                )
                 prob_desc, test_code = parse_proposer_output(comp_text)
-                
+
                 # Reject malformed outputs by returning 0.0 reward
                 if prob_desc is None or test_code is None:
                     rewards.append(0.0)
                     continue
-                
+
                 # Format requirements built into the answerer prompt
                 ans_prompt = (
                     f"Write a Python function to solve this problem:\n{prob_desc}\n\n"
                     "FORMAT REQUIREMENT: Output ONLY valid Python code. Do not include any conversational filler."
                 )
-                inputs = tokenizer(ans_prompt, return_tensors="pt").to(answerer_model.device)
+                inputs = tokenizer(ans_prompt, return_tensors="pt").to(
+                    answerer_model.device
+                )
                 input_len = inputs["input_ids"].shape[1]
 
                 with torch.no_grad():
-                    ut = answerer_model.generate(**inputs, max_new_tokens=256, do_sample=True, temperature=0.7)
+                    generated_output = answerer_model.generate(
+                        **inputs, max_new_tokens=256, do_sample=True, temperature=0.7
+                    )
 
-                generated_tokens = out[0][input_len:]
+                generated_tokens = generated_output[0][input_len:]
 
-                raw_solution = tokenizer.decode(generated_tokens, skip_special_tokens=True)
+                raw_solution = tokenizer.decode(
+                    generated_tokens, skip_special_tokens=True
+                )
                 solution = clean_code_output(raw_solution)
                 print(f"Answerer Solution:\n{solution}")
-                
+
                 # Reward heuristic: Target problems that are challenging yet solvable (~0.5 pass score)
                 score = sandbox.evaluate(solution, test_code)
                 diff_reward = 1.0 - abs(score - 0.5) * 2
@@ -217,7 +266,7 @@ def main():
                     proposer_completion=comp_text,
                     answerer_completion=solution,
                     reward=diff_reward,
-                    metadata={"phase": "proposer", "execution_score": score}
+                    metadata={"phase": "proposer", "execution_score": score},
                 )
 
                 rewards.append(diff_reward)
@@ -242,52 +291,62 @@ def main():
             param.requires_grad = True
 
         proposer_model.eval()
-        
+
         # Explicit format requirements in Proposer system prompt
         messages = [
             {
-                "role": "system", 
+                "role": "system",
                 "content": (
                     "You are an expert programming problem creator. "
                     "FORMAT REQUIREMENT: You must always output problems using the exact tags: "
                     "[PROBLEM] followed by the description, and [TESTS] followed by executable Python assertions."
-                )
+                ),
             },
             {
-                "role": "user", 
+                "role": "user",
                 "content": (
                     f"Create an algorithmic coding problem based on this topic:\nTopic: {current_seed}\n\n"
                     "Strictly adhere to this layout:\n"
                     "[PROBLEM] <Detailed problem description>\n"
                     "[TESTS] <assert test_function(args) == expected>"
-                )
-            }
+                ),
+            },
         ]
 
         prob_desc, test_code = None, None
         max_retries = 3
 
         for attempt in range(max_retries):
-            text_prompt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-            inputs = tokenizer(text_prompt, return_tensors="pt").to(proposer_model.device)
+            text_prompt = tokenizer.apply_chat_template(
+                messages, tokenize=False, add_generation_prompt=True
+            )
+            inputs = tokenizer(text_prompt, return_tensors="pt").to(
+                proposer_model.device
+            )
 
             input_len = inputs["input_ids"].shape[1]
-            
+
             with torch.no_grad():
-                out = proposer_model.generate(**inputs, max_new_tokens=256, do_sample=True, temperature=0.7)
+                out = proposer_model.generate(
+                    **inputs, max_new_tokens=256, do_sample=True, temperature=0.7
+                )
 
             generated_tokens = out[0][input_len:]
-            
+
             generated_q = tokenizer.decode(generated_tokens, skip_special_tokens=True)
-            print(f"Proposer Question:\n{generated_q}") # TEMP
-            
+            print(f"Proposer Question:\n{generated_q}")  # TEMP
+
             prob_desc, test_code = parse_proposer_output(generated_q)
             if prob_desc is not None and test_code is not None:
                 break
-            print(f"Attempt {attempt + 1}: Proposer generated malformed output. Retrying generation...")
+            print(
+                f"Attempt {attempt + 1}: Proposer generated malformed output. Retrying generation..."
+            )
 
         if prob_desc is None or test_code is None:
-            print("Error: Proposer failed to follow format after multiple retries. Skipping this iteration's Answerer training.")
+            print(
+                "Error: Proposer failed to follow format after multiple retries. Skipping this iteration's Answerer training."
+            )
             continue
 
         # Explicit format requirement added to the Answerer prompt
@@ -301,9 +360,13 @@ def main():
 
             rewards = []
             for prompt, completion in zip(prompts, completions):
-                raw_sol_text = completion[0]["content"] if isinstance(completion, list) else completion
+                raw_sol_text = (
+                    completion[0]["content"]
+                    if isinstance(completion, list)
+                    else completion
+                )
                 solution = clean_code_output(raw_sol_text)
-                
+
                 score = sandbox.evaluate(solution, test_code)
 
                 # Log results
@@ -312,7 +375,7 @@ def main():
                     proposer_completion=prob_desc,
                     answerer_completion=solution,
                     reward=score,
-                    metadata={"phase": "answerer", "test_code": test_code}
+                    metadata={"phase": "answerer", "test_code": test_code},
                 )
 
                 rewards.append(score)
@@ -328,6 +391,7 @@ def main():
         answerer_trainer.train()
 
     print("\nSelf-Play Reinforcement Training Completed Successfully!")
+
 
 if __name__ == "__main__":
     main()
