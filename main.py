@@ -125,14 +125,29 @@ def validate_assertions(test_code_str):
         return 0.0
     
     score = 0.0
-    if "assert" in test_code_str:
-        score += 0.5
-        
+
+    # Assertion Code Needs to Run Properly 0.25
     try:
         ast.parse(test_code_str)
-        score += 0.5
+        score += 0.25
     except SyntaxError:
-        pass
+        return -0.1
+
+    # Needs to Assert 0.5
+    if "assert" in test_code_str:
+        score += 0.5
+
+    # Asserted Function Is Solution() 0.25
+    has_solution_call = False
+    if syntax_valid:
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call):
+                if isinstance(node.func, ast.Name) and node.func.id == 'solution':
+                    has_solution_call = True
+                    break
+    
+    if has_solution_call:
+        score += 0.25
         
     return score*0.2
 
