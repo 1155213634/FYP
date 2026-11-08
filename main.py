@@ -111,10 +111,10 @@ def log_rollout(seed_prompt, proposer_completion, answerer_completion, reward, m
     """Appends a complete self-play rollout record (Proposer + Answerer) to JSONL."""
     record = {
         # "seed_prompt": seed_prompt,
+        "reward": reward,
         "metadata": metadata or {},
         "proposer_completion": proposer_completion,
-        "answerer_completion": answerer_completion,
-        "reward": reward
+        "answerer_completion": answerer_completion
     }
     with open(LOG_FILE, "a", encoding="utf-8") as f:
         f.write(json.dumps(record, ensure_ascii=False) + "\n")
@@ -126,21 +126,21 @@ def validate_assertions(test_code_str):
     
     score = 0.0
 
-    # Assertion Code Needs to Run Properly 0.25
+    # Assertion Code Needs to Run Properly 0.2
     syntax_valid = False
     tree = None 
     try:
-        tree = ast.parse(test_code_str)  # <--- DEFINED HERE
-        score += 0.5
+        tree = ast.parse(test_code_str)
+        score += 0.2
         syntax_valid = True
     except SyntaxError:
         return -0.1
 
-    # Needs to Assert 0.5
+    # Needs to Assert 0.4
     if "assert" in test_code_str:
-        score += 0.5
+        score += 0.4
 
-    # Asserted Function Is Solution() 0.25
+    # Asserted Function Is Solution() 0.4
     has_solution_call = False
     if syntax_valid:
         for node in ast.walk(tree):
@@ -150,9 +150,9 @@ def validate_assertions(test_code_str):
                     break
     
     if has_solution_call:
-        score += 0.25
+        score += 0.4
         
-    return score*0.2
+    return score
 
 
 # ==========================================
@@ -207,7 +207,7 @@ def main():
     )
 
     # --- ALTERNATING SELF-PLAY TRAINING LOOP ---
-    num_iterations = 3
+    num_iterations = 50
     for iteration in range(num_iterations):
         print(f"\n==============================")
         print(f"=== SELF-PLAY ITERATION {iteration + 1}/{num_iterations} ===")
@@ -238,9 +238,9 @@ def main():
 
                 format_score = 0.0
                 if has_problem_tag:
-                    format_score += 0.1
+                    format_score += 0.5
                 if has_tests_tag:
-                    format_score += 0.1
+                    format_score += 0.5
                     
                 prob_desc, test_code = parse_proposer_output(comp_text)
                 
@@ -270,15 +270,15 @@ def main():
                 score = sandbox.evaluate(solution, test_code)
                 diff_reward = 1.0 - abs(score - 0.5) * 2
 
-                total_reward = format_score + diff_reward * 0.6 + assert_score
+                total_reward = format_score * 0.2 + diff_reward * 0.6 + assert_score * 0.2
 
                 # Log results to file
                 log_rollout(
                     seed_prompt=prompt,
                     proposer_completion=comp_text,
                     answerer_completion=solution,
-                    reward=diff_reward,
-                    metadata={"phase": "proposer", "reward": total_reward}
+                    reward=total_reward,
+                    metadata={"phase": "proposer", "format": format_score, "assert": assert_score, "eval_reward": score}
                 )
 
                 rewards.append(total_reward)
@@ -374,9 +374,9 @@ def main():
         # Saving
         if (iteration+1) % 10 == 0:
             print("Saving final models to disk...")
-            proposer_model.save_pretrained(f"./{iteration}_proposer_model")
-            answerer_model.save_pretrained(f"./{iteration}_answerer_model")
-            tokenizer.save_pretrained(f"./{iteration}_tokenizer")
+            proposer_model.save_pretrained(f"./trained/{iteration+1}_proposer_model")
+            answerer_model.save_pretrained(f"./trained/{iteration+1}_answerer_model")
+            tokenizer.save_pretrained(f"./trained/{iteration+1}_tokenizer")
             print("Models saved successfully!")
 
 
