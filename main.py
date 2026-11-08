@@ -8,6 +8,7 @@ import ast
 from datasets import Dataset
 from trl import GRPOTrainer, GRPOConfig
 from transformers import AutoModelForCausalLM, AutoTokenizer
+from prompts import get_proposer_prompt, get_answerer_prompt
 
 LOG_FILE = "training_rollouts.jsonl"
 
@@ -188,7 +189,7 @@ def main():
     )
 
     # --- ALTERNATING SELF-PLAY TRAINING LOOP ---
-    num_iterations = 50
+    num_iterations = 10
     for iteration in range(num_iterations):
         print(f"\n==============================")
         print(f"=== SELF-PLAY ITERATION {iteration + 1}/{num_iterations} ===")
@@ -204,6 +205,7 @@ def main():
             param.requires_grad = False
         for param in proposer_model.parameters():
             param.requires_grad = True
+
 
         def proposer_reward_func(prompts, completions, **kwargs):
             rewards = []
@@ -233,22 +235,17 @@ def main():
                 assert_score += validate_assertions(test_code)
                 
                 # Format requirements built into the answerer prompt
-                ans_prompt = (
-                    f"Write a Python function to solve this problem:\n{prob_desc}\n\n"
-                    "FORMAT REQUIREMENT: Output ONLY valid Python code. The code should have only one function solution(). Do not include any conversational filler."
-                    "Provide the code instead of giving suggestions."
-                )
-                inputs = tokenizer(ans_prompt, return_tensors="pt").to(answerer_model.device)
+                text_prompt = tokenizer.apply_chat_template(get_answerer_prompt(iteration), tokenize=False, add_generation_prompt=True)
+                inputs = tokenizer(text_prompt, return_tensors="pt").to(proposer_model.device)
                 input_len = inputs["input_ids"].shape[1]
-
+            
                 with torch.no_grad():
                     out = answerer_model.generate(**inputs, max_new_tokens=256, do_sample=True, temperature=0.7)
 
                 generated_tokens = out[0][input_len:]
-
+            
                 raw_solution = tokenizer.decode(generated_tokens, skip_special_tokens=True)
                 solution = clean_code_output(raw_solution)
-                # print(f"Answerer Solution:\n{solution}")
                 
                 # Reward heuristic: Target problems that are challenging yet solvable (~0.5 pass score)
                 score = sandbox.evaluate(solution, test_code)
@@ -268,34 +265,12 @@ def main():
                 rewards.append(total_reward)
             return rewards
 
-        proposer_messages = [
-            {
-                "role": "system", 
-                "content": (
-                    "You are an expert programming problem creator. "
-                    "FORMAT REQUIREMENT: You must always output problems using the exact tags: "
-                    "[PROBLEM] followed by the description, and [TESTS] followed by executable Python assertions.\n"
-                    "Example:\n"
-                    "[PROBLEM] <Detailed problem description>\n"
-                    "[TESTS] <assert solution(args) == expected>"
-                )
-            },
-            {
-                "role": "user", 
-                "content": (
-                    f"Create an algorithmic coding problem based on this topic:\nTopic: {current_seed}\n\n"
-                    "Strictly adhere to this layout:\n"
-                    "[PROBLEM] <Detailed problem description>\n"
-                    "[TESTS] <assert solution(args) == expected>"
-                )
-            }
-        ]
 
-        formatted_proposer_prompt = tokenizer.apply_chat_template(
-            proposer_messages, tokenize=False, add_generation_prompt=True
+        proposer_prompt = tokenizer.apply_chat_template(
+            get_proposer_prompt(iteration), tokenize=False, add_generation_prompt=True
         )
 
-        proposer_dataset = Dataset.from_dict({"prompt": [formatted_proposer_prompt]})
+        proposer_dataset = Dataset.from_dict({"prompt": [proposer_prompt]})
         proposer_trainer = GRPOTrainer(
             model=proposer_model,
             reward_funcs=proposer_reward_func,
@@ -314,36 +289,12 @@ def main():
             param.requires_grad = True
 
         proposer_model.eval()
-        
-        # Explicit format requirements in Proposer system prompt
-        messages = [
-            {
-                "role": "system", 
-                "content": (
-                    "You are an expert programming problem creator. "
-                    "FORMAT REQUIREMENT: You must always output problems using the exact tags: "
-                    "[PROBLEM] followed by the description, and [TESTS] followed by executable Python assertions.\n"
-                    "Example:\n"
-                    "[PROBLEM] <Detailed problem description>\n"
-                    "[TESTS] <assert solution(args) == expected>"
-                )
-            },
-            {
-                "role": "user", 
-                "content": (
-                    f"Create an algorithmic coding problem based on this topic:\nTopic: {current_seed}\n\n"
-                    "Strictly adhere to this layout:\n"
-                    "[PROBLEM] <Detailed problem description>\n"
-                    "[TESTS] <assert solution(args) == expected>"
-                )
-            }
-        ]
 
         prob_desc, test_code = None, None
         max_retries = 3
 
         for attempt in range(max_retries):
-            text_prompt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+            text_prompt = tokenizer.apply_chat_template(get_proposer_prompt(iteration), tokenize=False, add_generation_prompt=True)
             inputs = tokenizer(text_prompt, return_tensors="pt").to(proposer_model.device)
 
             input_len = inputs["input_ids"].shape[1]
@@ -354,7 +305,6 @@ def main():
             generated_tokens = out[0][input_len:]
             
             generated_q = tokenizer.decode(generated_tokens, skip_special_tokens=True)
-            # print(f"Proposer Question:\n{generated_q}") # TEMP
             
             prob_desc, test_code = parse_proposer_output(generated_q)
             if prob_desc is not None and test_code is not None:
@@ -365,12 +315,6 @@ def main():
             print("Error: Proposer failed to follow format after multiple retries. Skipping this iteration's Answerer training.")
             continue
 
-        # Explicit format requirement added to the Answerer prompt
-        answerer_prompt = (
-            f"Write a Python function to solve this problem:\n{prob_desc}\n\n"
-            "FORMAT REQUIREMENT: Output ONLY valid Python code. The code should have only one function solution(). Do not include any conversational filler."
-            "Provide the code instead of giving suggestions."
-        )
 
         def answerer_reward_func(prompts, completions, **kwargs):
             assert test_code is not None
@@ -393,6 +337,11 @@ def main():
 
                 rewards.append(score)
             return rewards
+
+
+        answerer_prompt = tokenizer.apply_chat_template(
+            get_answerer_prompt(iteration), tokenize=False, add_generation_prompt=True
+        )
 
         answerer_dataset = Dataset.from_dict({"prompt": [answerer_prompt]})
         answerer_trainer = GRPOTrainer(
