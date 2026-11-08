@@ -127,9 +127,12 @@ def validate_assertions(test_code_str):
     score = 0.0
 
     # Assertion Code Needs to Run Properly 0.25
+    syntax_valid = False
+    tree = None 
     try:
-        ast.parse(test_code_str)
-        score += 0.25
+        tree = ast.parse(test_code_str)  # <--- DEFINED HERE
+        score += 0.5
+        syntax_valid = True
     except SyntaxError:
         return -0.1
 
