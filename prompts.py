@@ -13,7 +13,7 @@ def get_proposer_prompt(iter):
                 "content": (
                     "You are an expert programming problem creator. "
                     "FORMAT REQUIREMENT: You must always output problems using the exact tags: "
-                    "[PROBLEM] followed by the description, and [TESTS] followed by executable Python assertions.\n"
+                    "[PROBLEM] followed by the description, and [TESTS] followed by executable Python assertions. Assertions use function solution(args)\n"
                     "Example:\n"
                     "[PROBLEM] <Detailed problem description>\n"
                     "[TESTS] <assert solution(args) == expected>"

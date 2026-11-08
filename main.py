@@ -10,7 +10,7 @@ from trl import GRPOTrainer, GRPOConfig
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from prompts import get_proposer_prompt, get_answerer_prompt
 
-LOG_FILE = "training_rollouts.jsonl"
+LOG_FILE = "./training_rollouts.jsonl"
 
 # ==========================================
 # 1. SECURE DOCKER SANDBOX
@@ -189,7 +189,7 @@ def main():
     )
 
     # --- ALTERNATING SELF-PLAY TRAINING LOOP ---
-    num_iterations = 10
+    num_iterations = 3
     for iteration in range(num_iterations):
         print(f"\n==============================")
         print(f"=== SELF-PLAY ITERATION {iteration + 1}/{num_iterations} ===")
@@ -208,6 +208,7 @@ def main():
 
 
         def proposer_reward_func(prompts, completions, **kwargs):
+            # Max reward = formatting 0.2 + assertion 0.2 + answerer correctness 0.6 = 1.0
             rewards = []
             answerer_model.eval()
             for prompt, completion in zip(prompts, completions):
@@ -251,7 +252,7 @@ def main():
                 score = sandbox.evaluate(solution, test_code)
                 diff_reward = 1.0 - abs(score - 0.5) * 2
 
-                total_reward = format_score * 0.8 + diff_reward + assert_score
+                total_reward = format_score + diff_reward * 0.6 + assert_score
 
                 # Log results to file
                 log_rollout(
@@ -353,7 +354,7 @@ def main():
         answerer_trainer.train()
 
         # Saving
-        if iteration % 10 == 0:
+        if (iteration+1) % 10 == 0:
             print("Saving final models to disk...")
             proposer_model.save_pretrained(f"./{iteration}_proposer_model")
             answerer_model.save_pretrained(f"./{iteration}_answerer_model")
