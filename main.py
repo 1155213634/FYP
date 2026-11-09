@@ -36,7 +36,7 @@ class DockerSandbox:
                             print(f"Test Error: {{e}}")
                             exit(1)
                         """
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False, encoding="utf-8") as f:
             f.write(full_script)
             temp_file_path = f.name
 
@@ -140,6 +140,9 @@ def validate_assertions(test_code_str):
     if "assert" in test_code_str:
         score += 0.4
 
+    if "assert solution(" in test_code_str:
+        score += 0.4
+
     # Asserted Function Is Solution() 0.4
     has_solution_call = False
     if syntax_valid:
@@ -164,7 +167,7 @@ def main():
         pass
 
     # MODEL_ID = "Qwen/Qwen2.5-Coder-1.5B-Instruct"
-    MODEL_ID = "HuggingFaceTB/SmolLM2-360M-Instruct"    # Small test
+    MODEL_ID = "Qwen/Qwen2.5-Coder-3B"    
     sandbox = DockerSandbox(timeout_seconds=3)
 
     tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
@@ -191,7 +194,7 @@ def main():
         max_completion_length=256,
         logging_steps=5,
         bf16=True,
-        report_to="none"
+        report_to="none",
     )
 
     answerer_args = GRPOConfig(
@@ -203,11 +206,11 @@ def main():
         max_completion_length=256,
         logging_steps=5,
         bf16=True,
-        report_to="none"
+        report_to="none",
     )
 
     # --- ALTERNATING SELF-PLAY TRAINING LOOP ---
-    num_iterations = 50
+    num_iterations = 5
     for iteration in range(num_iterations):
         print(f"\n==============================")
         print(f"=== SELF-PLAY ITERATION {iteration + 1}/{num_iterations} ===")
@@ -252,9 +255,11 @@ def main():
                 # Reward for correct assertion code
                 assert_score = 0.0
                 assert_score += validate_assertions(test_code)
+
+                if "assert"
                 
                 # Format requirements built into the answerer prompt
-                text_prompt = tokenizer.apply_chat_template(get_answerer_prompt(iteration), tokenize=False, add_generation_prompt=True)
+                text_prompt = tokenizer.apply_chat_template(get_answerer_prompt(prob_desc), tokenize=False, add_generation_prompt=True)
                 inputs = tokenizer(text_prompt, return_tensors="pt").to(proposer_model.device)
                 input_len = inputs["input_ids"].shape[1]
             
@@ -359,7 +364,7 @@ def main():
 
 
         answerer_prompt = tokenizer.apply_chat_template(
-            get_answerer_prompt(iteration), tokenize=False, add_generation_prompt=True
+            get_answerer_prompt(prob_desc), tokenize=False, add_generation_prompt=True
         )
 
         answerer_dataset = Dataset.from_dict({"prompt": [answerer_prompt]})
