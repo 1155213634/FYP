@@ -22,21 +22,21 @@ class DockerSandbox:
         self.timeout = timeout_seconds
 
     def evaluate(self, solution_code: str, test_code: str) -> float:
-        full_script = f"""
-                        {self._indent_code(solution_code)}
+        full_script = f"""\
+{solution_code}
 
-                        try:
-                        {self._indent_code(test_code)}
-                            print("ALL_TESTS_PASSED")
-                            exit(0)
-                        except AssertionError as ae:
-                            print(f"Assertion Failed: {{ae}}")
-                            exit(1)
-                        except Exception as e:
-                            print(f"Test Error: {{e}}")
-                            exit(1)
-                        """
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
+try:
+{self._indent_assert(test_code)}
+    print("ALL_TESTS_PASSED")
+    exit(0)
+except AssertionError as ae:
+    print(f"Assertion Failed: {{ae}}")
+    exit(1)
+except Exception as e:
+    print(f"Test Error: {{e}}")
+    exit(1)
+        """
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False, encoding="utf-8") as f:
             f.write(full_script)
             temp_file_path = f.name
 
@@ -74,8 +74,12 @@ class DockerSandbox:
                 try: os.unlink(temp_file_path)
                 except Exception: pass
 
-    def _indent_code(self, code: str, spaces: int = 4) -> str:
-        return "\n".join([" " * spaces + line if line.strip() else line for line in code.splitlines()])
+    # def 
+    # code_pattern = r"```(?:python\s*)?\n?(.*?)\n?```"
+    # code_snippet = code_match.group(1).strip()
+
+    def _indent_assert(self, code: str, spaces: int = 4) -> str:
+        return "\n".join([" " * spaces + line.lstrip() for line in code.splitlines()])
 
 
 # ==========================================
@@ -104,7 +108,7 @@ def clean_code_output(text: str) -> str:
     pattern = r"```(?:python)?\n(.*?)\n```"
     matches = re.findall(pattern, text, re.DOTALL)
     if matches:
-        return matches[0].strip()
+        return "\n".join(match.strip() for match in matches)
     return text.strip()
 
 def log_rollout(seed_prompt, proposer_completion, answerer_completion, reward, metadata=None):
@@ -126,19 +130,22 @@ def validate_assertions(test_code_str):
     
     score = 0.0
 
-    # Assertion Code Needs to Run Properly 0.2
+    # Assertion Code Needs to Run Properly 0.3
     syntax_valid = False
     tree = None 
     try:
         tree = ast.parse(test_code_str)
-        score += 0.2
+        score += 0.3
         syntax_valid = True
     except SyntaxError:
-        return -0.1
+        return -1.5
 
-    # Needs to Assert 0.4
+    # Needs to Assert 0.3
     if "assert" in test_code_str:
-        score += 0.4
+        score += 0.15
+
+    if "assert solution(" in test_code_str:
+        score += 0.15
 
     # Asserted Function Is Solution() 0.4
     has_solution_call = False
@@ -164,7 +171,7 @@ def main():
         pass
 
     # MODEL_ID = "Qwen/Qwen2.5-Coder-1.5B-Instruct"
-    MODEL_ID = "HuggingFaceTB/SmolLM2-360M-Instruct"    # Small test
+    MODEL_ID = "Qwen/Qwen2.5-Coder-3B-Instruct"    
     sandbox = DockerSandbox(timeout_seconds=3)
 
     tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
@@ -207,13 +214,11 @@ def main():
     )
 
     # --- ALTERNATING SELF-PLAY TRAINING LOOP ---
-    num_iterations = 50
+    num_iterations = 2
     for iteration in range(num_iterations):
         print(f"\n==============================")
         print(f"=== SELF-PLAY ITERATION {iteration + 1}/{num_iterations} ===")
         print(f"==============================")
-
-        current_seed = seed_prompts[iteration % len(seed_prompts)]
 
         # ----------------------------------------------------
         # PHASE 1: Train Proposer (Freeze Answerer)
@@ -254,7 +259,7 @@ def main():
                 assert_score += validate_assertions(test_code)
                 
                 # Format requirements built into the answerer prompt
-                text_prompt = tokenizer.apply_chat_template(get_answerer_prompt(iteration), tokenize=False, add_generation_prompt=True)
+                text_prompt = tokenizer.apply_chat_template(get_answerer_prompt(prob_desc), tokenize=False, add_generation_prompt=True)
                 inputs = tokenizer(text_prompt, return_tensors="pt").to(proposer_model.device)
                 input_len = inputs["input_ids"].shape[1]
             
@@ -268,7 +273,8 @@ def main():
                 
                 # Reward heuristic: Target problems that are challenging yet solvable (~0.5 pass score)
                 score = sandbox.evaluate(solution, test_code)
-                diff_reward = 1.0 - abs(score - 0.5) * 2
+                # edited below diff_reward as sandbox.evaluate implies higher reward better, not difficulty yet
+                diff_reward = score
 
                 total_reward = format_score * 0.2 + diff_reward * 0.6 + assert_score * 0.2
 
@@ -326,9 +332,13 @@ def main():
             generated_q = tokenizer.decode(generated_tokens, skip_special_tokens=True)
             
             prob_desc, test_code = parse_proposer_output(generated_q)
+            if validate_assertions(test_code) <= 0:
+                prob_desc, test_code = None, None
             if prob_desc is not None and test_code is not None:
                 break
             print(f"Attempt {attempt + 1}: Proposer generated malformed output. Retrying generation...")
+            
+
 
         if prob_desc is None or test_code is None:
             print("Error: Proposer failed to follow format after multiple retries. Skipping this iteration's Answerer training.")
@@ -359,7 +369,7 @@ def main():
 
 
         answerer_prompt = tokenizer.apply_chat_template(
-            get_answerer_prompt(iteration), tokenize=False, add_generation_prompt=True
+            get_answerer_prompt(prob_desc), tokenize=False, add_generation_prompt=True
         )
 
         answerer_dataset = Dataset.from_dict({"prompt": [answerer_prompt]})
