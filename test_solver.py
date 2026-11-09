@@ -1,0 +1,201 @@
+import os
+import json
+import re
+import tempfile
+import docker
+import torch
+import ast
+from datasets import Dataset
+from trl import GRPOTrainer, GRPOConfig
+from transformers import AutoModelForCausalLM, AutoTokenizer
+from prompts import get_answerer_prompt
+from test_question_and_assert import list_of_questions
+import random
+
+LOG_FILE = "./solver_test_training_rollouts.jsonl"
+
+# ==========================================
+# 1. SECURE DOCKER SANDBOX
+# ==========================================
+class DockerSandbox:
+    def __init__(self, image_name: str = "python:3.10-slim", timeout_seconds: int = 3):
+        self.client = docker.from_env()
+        self.image_name = image_name
+        self.timeout = timeout_seconds
+
+    def evaluate(self, solution_code: str, test_code: str) -> float:
+        full_script = f"""\
+{solution_code}
+
+try:
+{self._indent_assert(test_code)}
+    print("ALL_TESTS_PASSED")
+    exit(0)
+except AssertionError as ae:
+    print(f"Assertion Failed: {{ae}}")
+    exit(1)
+except Exception as e:
+    print(f"Test Error: {{e}}")
+    exit(1)
+        """
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False, encoding="utf-8") as f:
+            f.write(full_script)
+            temp_file_path = f.name
+
+        # Get the actual random filename inside the mounted /app directory
+        script_name = os.path.basename(temp_file_path)
+
+        container = None
+        try:
+            container = self.client.containers.run(
+                image=self.image_name,
+                command=f"python /app/{script_name}",
+                volumes={os.path.dirname(temp_file_path): {'bind': '/app', 'mode': 'ro'}},
+                working_dir='/app',
+                network_mode="none",
+                mem_limit="256m",
+                cpu_period=100000,
+                cpu_quota=50000,
+                pids_limit=64,
+                detach=True,
+                remove=False
+            )
+            result = container.wait(timeout=self.timeout)
+            logs = container.logs(stdout=True, stderr=True).decode('utf-8')
+            
+            if result.get('StatusCode', -1) == 0 and "ALL_TESTS_PASSED" in logs:
+                return 1.0
+            return 0.0
+        except Exception:
+            return 0.0
+        finally:
+            if container:
+                try: container.remove(force=True)
+                except Exception: pass
+            if os.path.exists(temp_file_path):
+                try: os.unlink(temp_file_path)
+                except Exception: pass
+
+    # def 
+    # code_pattern = r"```(?:python\s*)?\n?(.*?)\n?```"
+    # code_snippet = code_match.group(1).strip()
+
+    def _indent_assert(self, code: str, spaces: int = 4) -> str:
+        return "\n".join([" " * spaces + line.lstrip() for line in code.splitlines()])
+
+
+# ==========================================
+# 2. UTILITIES
+# ==========================================
+def clean_code_output(text: str) -> str:
+    """
+    Extracts pure Python code if enclosed in markdown code blocks,
+    otherwise returns the stripped raw text.
+    """
+    pattern = r"```(?:python)?\n(.*?)\n```"
+    matches = re.findall(pattern, text, re.DOTALL)
+    if matches:
+        return "\n".join(match.strip() for match in matches)
+    return text.strip()
+
+def log_rollout(answerer_completion, reward, metadata=None):
+    """Appends a complete self-play rollout record (Answerer) to JSONL."""
+    record = {
+        "reward": reward,
+        "metadata": metadata or {},
+        "answerer_completion": answerer_completion
+    }
+    with open(LOG_FILE, "a", encoding="utf-8") as f:
+        f.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+# ==========================================
+# 3. SELF-PLAY TRAINING ORCHESTRATION
+# ==========================================
+def main():
+    # Cleanup log file
+    with open(LOG_FILE, "w", encoding="utf-8") as f:
+        pass
+
+    # MODEL_ID = "Qwen/Qwen2.5-Coder-1.5B-Instruct"
+    MODEL_ID = "Qwen/Qwen2.5-Coder-3B-Instruct"    
+    sandbox = DockerSandbox(timeout_seconds=3)
+
+    tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
+    tokenizer.pad_token = tokenizer.eos_token
+
+    # Load shared or separate models for Answerer
+    print("Loading models...")
+    answerer_model = AutoModelForCausalLM.from_pretrained(MODEL_ID, dtype=torch.bfloat16, device_map="auto")
+
+    # Common TRL configuration
+    answerer_args = GRPOConfig(
+        output_dir="grpo_answerer_output",
+        learning_rate=1e-4,
+        per_device_train_batch_size=1,
+        gradient_accumulation_steps=4,
+        num_generations=4,          # Group size (G) for GRPO
+        max_completion_length=256,
+        logging_steps=5,
+        bf16=True,
+        report_to="none"
+    )
+
+    # --- ALTERNATING SELF-PLAY TRAINING LOOP ---
+    num_iterations = 11
+    for iteration in range(num_iterations):
+        print(f"\n==============================")
+        print(f"=== SELF-PLAY ITERATION {iteration + 1}/{num_iterations} ===")
+        print(f"==============================")
+
+        print("\n--- Phase 2: Training Answerer ---")
+        for param in answerer_model.parameters():
+            param.requires_grad = True
+
+
+        prob_desc, test_code = random.choice(list_of_questions)
+
+        def answerer_reward_func(prompts, completions, **kwargs):
+            assert test_code is not None
+
+            rewards = []
+            for prompt, completion in zip(prompts, completions):
+                raw_sol_text = completion[0]["content"] if isinstance(completion, list) else completion
+                solution = clean_code_output(raw_sol_text)
+                
+                score = sandbox.evaluate(solution, test_code)
+
+                # Log results
+                log_rollout(
+                    answerer_completion=solution,
+                    reward=score,
+                    metadata={"phase": "answerer", "problem_description": prob_desc, "test_code": test_code}
+                )
+
+                rewards.append(score)
+            return rewards
+
+        answerer_prompt = tokenizer.apply_chat_template(
+            get_answerer_prompt(prob_desc), tokenize=False, add_generation_prompt=True
+        )
+
+        answerer_dataset = Dataset.from_dict({"prompt": [answerer_prompt]})
+        answerer_trainer = GRPOTrainer(
+            model=answerer_model,
+            reward_funcs=answerer_reward_func,
+            args=answerer_args,
+            train_dataset=answerer_dataset,
+        )
+        answerer_trainer.train()
+
+        # Saving
+        if (iteration+1) % 10 == 0:
+            print("Saving final models to disk...")
+            answerer_model.save_pretrained(f"./trained/{iteration+1}_answerer_model")
+            tokenizer.save_pretrained(f"./trained/{iteration+1}_tokenizer")
+            print("Models saved successfully!")
+
+
+    print("\nSelf-Play Reinforcement Training Completed Successfully!")
+
+if __name__ == "__main__":
+    main()

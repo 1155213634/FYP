@@ -108,7 +108,7 @@ def clean_code_output(text: str) -> str:
     pattern = r"```(?:python)?\n(.*?)\n```"
     matches = re.findall(pattern, text, re.DOTALL)
     if matches:
-        return matches[0].strip()
+        return "\n".join(match.strip() for match in matches)
     return text.strip()
 
 def log_rollout(seed_prompt, proposer_completion, answerer_completion, reward, metadata=None):
@@ -214,7 +214,7 @@ def main():
     )
 
     # --- ALTERNATING SELF-PLAY TRAINING LOOP ---
-    num_iterations = 11
+    num_iterations = 2
     for iteration in range(num_iterations):
         print(f"\n==============================")
         print(f"=== SELF-PLAY ITERATION {iteration + 1}/{num_iterations} ===")

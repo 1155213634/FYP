@@ -17,7 +17,9 @@ def get_proposer_prompt(iter):
                     "Use 4 space character for indentation, and indent once for each assertion, \\n to separate each assertion, output 2-3 assertions"
                     "Example:\n"
                     "[PROBLEM] Detailed problem description\n"
-                    "[TESTS] assert solution(args) == expected"
+                    "[TESTS]```python\n"
+                    "assert solution(args) == expected\n"
+                    "```"
                 )
             },
             {
@@ -26,7 +28,9 @@ def get_proposer_prompt(iter):
                     f"Create an algorithmic coding problem based on this topic:\nTopic: {current_seed}\n\n"
                     "Strictly adhere to this layout:\n"
                     "[PROBLEM] Detailed problem description\n"
-                    "[TESTS] assert solution(args) == expected"
+                    "[TESTS]```python\n"
+                    "assert solution(args) == expected\n"
+                    "```"
                 )
             }
         ]
