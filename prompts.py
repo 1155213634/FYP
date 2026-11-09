@@ -36,6 +36,23 @@ def get_proposer_prompt(iter):
                 "```"
             )
         },
+        {
+            "role": "user",
+            "content": "Create an algorithmic coding problem based on this topic:\nTopic: array sum"
+        },
+        {
+            "role": "assistant",
+            "content": (
+                "[PROBLEM]\n"
+                "Write a function `solution(s)` that takes an array `l` and returns the sum of all elements in the array.\n\n"
+                "[TESTS]\n"
+                "```python\n"
+                "assert solution([1, 2, 3]) == 6\n"
+                "assert solution([3, 3, 3]) == 9\n"
+                "assert solution([0]) == 0\n"
+                "```"
+            )
+        },
         # Actual user prompt for the current iteration
         {
             "role": "user",
