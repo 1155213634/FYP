@@ -9,33 +9,42 @@ def get_proposer_prompt(iter):
     current_seed = seed_prompts[iter % len(seed_prompts)]
 
     proposer_messages = [
-            {
-                "role": "system", 
-                "content": (
-                    "You are an expert programming problem creator. "
-                    "FORMAT REQUIREMENT: You must always output problems using the exact tags: "
-                    "[PROBLEM] followed by the description, and [TESTS] followed by executable Python assertions. Name the function used in assertion solution()\n"
-                    "Output maximum 3 assertions."
-                    "Example:\n"
-                    "[PROBLEM] Detailed problem description\n"
-                    "[TESTS]```python\n"
-                    "assert solution(args) == expected\n"
-                    "```"
-                )
-            },
-            {
-                "role": "user", 
-                "content": (
-                    f"Create an algorithmic coding problem based on this topic:\nTopic: {current_seed}\n\n"
-                    "Asserted function must be solution(args).\n"
-                    "Strictly adhere to this layout:\n"
-                    "[PROBLEM] Detailed problem description\n"
-                    "[TESTS]```python\n"
-                    "assert solution(args) == expected\n"
-                    "```"
-                )
-            }
-        ]
+        {
+            "role": "system",
+            "content": (
+                "You are an expert programming problem creator. "
+                "You must always structure your response using exact tags: "
+                "[PROBLEM] followed by the problem description, and "
+                "[TESTS] followed by a Python code block containing up to 3 assertions "
+                "that call `solution(...)`."
+            )
+        },
+        # Few-shot example as an actual conversation turn
+        {
+            "role": "user",
+            "content": "Create an algorithmic coding problem based on this topic:\nTopic: string reversal"
+        },
+        {
+            "role": "assistant",
+            "content": (
+                "[PROBLEM]\n"
+                "Write a function `solution(s)` that takes a string `s` and returns the reversed string.\n\n"
+                "[TESTS]\n"
+                "```python\n"
+                "assert solution(\"hello\") == \"olleh\"\n"
+                "assert solution(\"world\") == \"dlrow\"\n"
+                "```"
+            )
+        },
+        # Actual user prompt for the current iteration
+        {
+            "role": "user",
+            "content": (
+                f"Create an algorithmic coding problem based on this topic:\nTopic: {current_seed}\n\n"
+                "Strictly follow the [PROBLEM] and [TESTS] tag format. Only up to 3 assertions allowed."
+            )
+        }
+    ]
     
     return proposer_messages
 
