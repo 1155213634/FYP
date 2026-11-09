@@ -130,7 +130,7 @@ def validate_assertions(test_code_str):
     
     score = 0.0
 
-    # Assertion Code Needs to Run Properly 0.3
+    # Assertion Code Needs to Run Properly 0.3 
     syntax_valid = False
     tree = None 
     try:

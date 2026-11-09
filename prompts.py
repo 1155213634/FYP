@@ -27,6 +27,7 @@ def get_proposer_prompt(iter):
                 "role": "user", 
                 "content": (
                     f"Create an algorithmic coding problem based on this topic:\nTopic: {current_seed}\n\n"
+                    "Asserted function must be solution(args).\n"
                     "Strictly adhere to this layout:\n"
                     "[PROBLEM] Detailed problem description\n"
                     "[TESTS]```python\n"
