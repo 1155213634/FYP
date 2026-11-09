@@ -138,7 +138,7 @@ def validate_assertions(test_code_str):
         score += 0.3
         syntax_valid = True
     except SyntaxError:
-        return -1.5
+        return 0.0
 
     # Needs to Assert 0.3
     if "assert" in test_code_str:
@@ -158,8 +158,6 @@ def validate_assertions(test_code_str):
     
     if has_solution_call:
         score += 0.4
-    else:
-        score -= 1.0
         
     return score
 
@@ -172,8 +170,9 @@ def main():
     with open(LOG_FILE, "w", encoding="utf-8") as f:
         pass
 
+    MODEL_ID = "HuggingFaceTB/SmolLM2-360M-Instruct"
     # MODEL_ID = "Qwen/Qwen2.5-Coder-1.5B-Instruct"
-    MODEL_ID = "Qwen/Qwen2.5-Coder-3B-Instruct"    
+    # MODEL_ID = "Qwen/Qwen2.5-Coder-3B-Instruct"    
     sandbox = DockerSandbox(timeout_seconds=3)
 
     tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
@@ -183,12 +182,6 @@ def main():
     print("Loading models...")
     proposer_model = AutoModelForCausalLM.from_pretrained(MODEL_ID, dtype=torch.bfloat16, device_map="auto")
     answerer_model = AutoModelForCausalLM.from_pretrained(MODEL_ID, dtype=torch.bfloat16, device_map="auto")
-
-    # Initial Seed Prompts for Proposer
-    seed_prompts = [
-        "Create an algorithmic problem involving arrays and target sums.",
-        "Create an algorithmic problem involving string reversal or parsing."
-    ]
 
     # Common TRL configuration
     proposer_args = GRPOConfig(
@@ -216,7 +209,7 @@ def main():
     )
 
     # --- ALTERNATING SELF-PLAY TRAINING LOOP ---
-    num_iterations = 2
+    num_iterations = 10
     for iteration in range(num_iterations):
         print(f"\n==============================")
         print(f"=== SELF-PLAY ITERATION {iteration + 1}/{num_iterations} ===")
@@ -240,20 +233,31 @@ def main():
                 comp_text = completion[0]["content"] if isinstance(completion, list) else completion
 
                 # Check for formatting
-                has_problem_tag = "[PROBLEM]" in comp_text
-                has_tests_tag = "[TESTS]" in comp_text
+                has_problem_tag = comp_text.count("[PROBLEM]")
+                has_tests_tag = comp_text.count("[TESTS]")
 
                 format_score = 0.0
-                if has_problem_tag:
+                if has_problem_tag == 1:
                     format_score += 0.5
-                if has_tests_tag:
+                if has_tests_tag == 1:
                     format_score += 0.5
+                
+                if has_problem_tag > 1 or has_tests_tag > 1:
+                    format_score = 0
                     
                 prob_desc, test_code = parse_proposer_output(comp_text)
                 
                 # Reject malformed outputs by returning 0.0 reward
                 if prob_desc is None or test_code is None:
                     rewards.append(0.0)
+
+                    log_rollout(
+                    seed_prompt=None,
+                    proposer_completion=None,
+                    answerer_completion=None,
+                    reward=0.0,
+                    metadata={"phase": "proposer", "failed": True}
+                )
                     continue
 
                 # Reward for correct assertion code
@@ -309,6 +313,7 @@ def main():
         # ----------------------------------------------------
         # PHASE 2: Train Answerer (Freeze Proposer)
         # ----------------------------------------------------
+        continue
         print("\n--- Phase 2: Training Answerer ---")
         for param in proposer_model.parameters():
             param.requires_grad = False
