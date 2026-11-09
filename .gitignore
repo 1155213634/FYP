@@ -4,6 +4,7 @@ grpo_proposer_output/
 grpo_self_play_output/
 trained/
 training_rollouts.jsonl
+*:Zone.Identifier
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
