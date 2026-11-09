@@ -194,7 +194,7 @@ def main():
         max_completion_length=256,
         logging_steps=5,
         bf16=True,
-        report_to="none",
+        report_to="none"
     )
 
     answerer_args = GRPOConfig(
@@ -206,7 +206,7 @@ def main():
         max_completion_length=256,
         logging_steps=5,
         bf16=True,
-        report_to="none",
+        report_to="none"
     )
 
     # --- ALTERNATING SELF-PLAY TRAINING LOOP ---
@@ -255,8 +255,6 @@ def main():
                 # Reward for correct assertion code
                 assert_score = 0.0
                 assert_score += validate_assertions(test_code)
-
-                if "assert"
                 
                 # Format requirements built into the answerer prompt
                 text_prompt = tokenizer.apply_chat_template(get_answerer_prompt(prob_desc), tokenize=False, add_generation_prompt=True)
