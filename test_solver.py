@@ -76,10 +76,6 @@ except Exception as e:
                 try: os.unlink(temp_file_path)
                 except Exception: pass
 
-    # def 
-    # code_pattern = r"```(?:python\s*)?\n?(.*?)\n?```"
-    # code_snippet = code_match.group(1).strip()
-
     def _indent_assert(self, code: str, spaces: int = 4) -> str:
         return "\n".join([" " * spaces + line.lstrip() for line in code.splitlines()])
 
@@ -87,7 +83,7 @@ except Exception as e:
 # ==========================================
 # 2. UTILITIES
 # ==========================================
-def clean_code_output(text: str) -> str:
+def assert_code_parser(text: str) -> str:
     """
     Extracts pure Python code if enclosed in markdown code blocks,
     otherwise returns the stripped raw text.
@@ -97,6 +93,34 @@ def clean_code_output(text: str) -> str:
     if matches:
         return "\n".join(match.strip() for match in matches)
     return text.strip()
+
+
+def solution_code_parser(text: str) -> str | None:
+    match = re.search(
+        r"```(?:python[ \t]*)?\s*(.*?)```",
+        text,
+        re.DOTALL | re.IGNORECASE,
+    )
+    code = match.group(1) if match else text
+
+    function_match = re.search(
+        r"(?m)^[ \t]*def[ \t]+([A-Za-z_]\w*)[ \t]*\(",
+        code,
+    )
+    if not function_match:
+        return text
+
+    original_name = function_match.group(1)
+    if original_name != "f":
+        code = re.sub(
+            rf"(?m)^([ \t]*def[ \t]+){re.escape(original_name)}(?=[ \t]*\()",
+            r"\1f",
+            code,
+            count=1,
+        )
+
+    return code
+
 
 def log_rollout(answerer_completion, reward, metadata=None):
     """Appends a complete self-play rollout record (Answerer) to JSONL."""
@@ -141,16 +165,14 @@ def main():
     )
 
     # --- ALTERNATING SELF-PLAY TRAINING LOOP ---
-    num_iterations = 11
+    num_iterations = 3
     for iteration in range(num_iterations):
         print(f"\n==============================")
         print(f"=== SELF-PLAY ITERATION {iteration + 1}/{num_iterations} ===")
         print(f"==============================")
 
-        print("\n--- Phase 2: Training Answerer ---")
         for param in answerer_model.parameters():
             param.requires_grad = True
-
 
         prob_desc, test_code = random.choice(list_of_questions)
 
@@ -160,7 +182,7 @@ def main():
             rewards = []
             for prompt, completion in zip(prompts, completions):
                 raw_sol_text = completion[0]["content"] if isinstance(completion, list) else completion
-                solution = clean_code_output(raw_sol_text)
+                solution = solution_code_parser(raw_sol_text)
                 
                 score = sandbox.evaluate(solution, test_code)
 
@@ -185,8 +207,8 @@ def main():
             args=answerer_args,
             train_dataset=answerer_dataset,
         )
-        answerer_trainer.train()
 
+        answerer_trainer.train()
         # Saving
         if (iteration+1) % 10 == 0:
             print("Saving final models to disk...")
