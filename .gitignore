@@ -3,6 +3,7 @@ grpo_answerer_output/
 grpo_proposer_output/
 grpo_self_play_output/
 trained/
+trained_models/
 training_rollouts.jsonl
 *:Zone.Identifier
 

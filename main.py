@@ -13,6 +13,18 @@ from prompts import get_proposer_prompt, get_answerer_prompt
 LOG_FILE = "./training_rollouts.jsonl"
 
 # ==========================================
+# 0. CONSTANTS
+# ==========================================
+MAX_ITER = 10                      # No. of total loops
+
+ANS_ATTEMPTS_PROP_TRAIN = 4        # No. of answerer attempts to calculate proposer difficulty score
+ANS_TOKENS_PROP_TRAIN = 256        # No. of max tokens for answerer for training proposer
+ANS_TEMP_PROP_TRAIN = 0.7          # No. of max tokens for answerer for training proposer
+
+PROP_TOKENS_ANS_TRAIN = 256        # No. of max tokens for proposer for training answerer
+PROP_TEMP_ANS_TRAIN = 0.7          # No. of max tokens for proposer for training answerer
+
+# ==========================================
 # 1. SECURE DOCKER SANDBOX
 # ==========================================
 class DockerSandbox:
@@ -24,7 +36,21 @@ class DockerSandbox:
     def evaluate(self, solution_code: str, test_code: str) -> float:
         full_script = f"""\
 {solution_code}
+        full_script = f"""\
+{solution_code}
 
+try:
+{self._indent_assert(test_code)}
+    print("ALL_TESTS_PASSED")
+    exit(0)
+except AssertionError as ae:
+    print(f"Assertion Failed: {{ae}}")
+    exit(1)
+except Exception as e:
+    print(f"Test Error: {{e}}")
+    exit(1)
+        """
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False, encoding="utf-8") as f:
 try:
 {self._indent_assert(test_code)}
     print("ALL_TESTS_PASSED")
@@ -80,6 +106,12 @@ except Exception as e:
 
     def _indent_assert(self, code: str, spaces: int = 4) -> str:
         return "\n".join([" " * spaces + line.lstrip() for line in code.splitlines()])
+    # def 
+    # code_pattern = r"```(?:python\s*)?\n?(.*?)\n?```"
+    # code_snippet = code_match.group(1).strip()
+
+    def _indent_assert(self, code: str, spaces: int = 4) -> str:
+        return "\n".join([" " * spaces + line.lstrip() for line in code.splitlines()])
 
 
 # ==========================================
@@ -108,6 +140,7 @@ def clean_code_output(text: str) -> str:
     pattern = r"```(?:python)?\n(.*?)\n```"
     matches = re.findall(pattern, text, re.DOTALL)
     if matches:
+        return "\n".join(match.strip() for match in matches)
         return "\n".join(match.strip() for match in matches)
     return text.strip()
 
@@ -138,16 +171,23 @@ def validate_assertions(test_code_str):
         score += 0.3
         syntax_valid = True
     except SyntaxError:
-        return -1.5
+        return 0.0
 
-    # Needs to Assert 0.3
+    # Needs to Assert 0.2
     if "assert" in test_code_str:
-        score += 0.15
+        score += 0.2
 
-    if "assert solution(" in test_code_str:
-        score += 0.15
+    # Asser Less Than Four 0.2
+    assertion_count = 0
+    if syntax_valid:
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Assert):
+                assertion_count += 1
+    
+    if assertion_count < 4:
+        score += 0.2
 
-    # Asserted Function Is Solution() 0.4
+    # Asserted Function Is Solution() 0.3
     has_solution_call = False
     if syntax_valid:
         for node in ast.walk(tree):
@@ -157,7 +197,7 @@ def validate_assertions(test_code_str):
                     break
     
     if has_solution_call:
-        score += 0.4
+        score += 0.3
         
     return score
 
@@ -170,8 +210,9 @@ def main():
     with open(LOG_FILE, "w", encoding="utf-8") as f:
         pass
 
+    MODEL_ID = "HuggingFaceTB/SmolLM2-360M-Instruct"
     # MODEL_ID = "Qwen/Qwen2.5-Coder-1.5B-Instruct"
-    MODEL_ID = "Qwen/Qwen2.5-Coder-3B-Instruct"    
+    # MODEL_ID = "Qwen/Qwen2.5-Coder-3B-Instruct"    
     sandbox = DockerSandbox(timeout_seconds=3)
 
     tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
@@ -182,12 +223,6 @@ def main():
     proposer_model = AutoModelForCausalLM.from_pretrained(MODEL_ID, dtype=torch.bfloat16, device_map="auto")
     answerer_model = AutoModelForCausalLM.from_pretrained(MODEL_ID, dtype=torch.bfloat16, device_map="auto")
 
-    # Initial Seed Prompts for Proposer
-    seed_prompts = [
-        "Create an algorithmic problem involving arrays and target sums.",
-        "Create an algorithmic problem involving string reversal or parsing."
-    ]
-
     # Common TRL configuration
     proposer_args = GRPOConfig(
         output_dir="grpo_proposer_output",
@@ -196,6 +231,8 @@ def main():
         gradient_accumulation_steps=4,
         num_generations=4,          # Group size (G) for GRPO
         max_completion_length=256,
+        temperature=0.8,            # Temperature for completions
+        repetition_penalty=1.15,    # Additional penalty for repeating
         logging_steps=5,
         bf16=True,
         report_to="none"
@@ -214,10 +251,9 @@ def main():
     )
 
     # --- ALTERNATING SELF-PLAY TRAINING LOOP ---
-    num_iterations = 2
-    for iteration in range(num_iterations):
+    for iteration in range(MAX_ITER):
         print(f"\n==============================")
-        print(f"=== SELF-PLAY ITERATION {iteration + 1}/{num_iterations} ===")
+        print(f"=== SELF-PLAY ITERATION {iteration + 1}/{MAX_ITER} ===")
         print(f"==============================")
 
         # ----------------------------------------------------
@@ -238,20 +274,31 @@ def main():
                 comp_text = completion[0]["content"] if isinstance(completion, list) else completion
 
                 # Check for formatting
-                has_problem_tag = "[PROBLEM]" in comp_text
-                has_tests_tag = "[TESTS]" in comp_text
+                has_problem_tag = comp_text.count("[PROBLEM]")
+                has_tests_tag = comp_text.count("[TESTS]")
 
                 format_score = 0.0
-                if has_problem_tag:
+                if has_problem_tag == 1:
                     format_score += 0.5
-                if has_tests_tag:
+                if has_tests_tag == 1:
                     format_score += 0.5
+                
+                if has_problem_tag > 1 or has_tests_tag > 1:
+                    format_score = 0
                     
                 prob_desc, test_code = parse_proposer_output(comp_text)
                 
                 # Reject malformed outputs by returning 0.0 reward
                 if prob_desc is None or test_code is None:
                     rewards.append(0.0)
+
+                    log_rollout(
+                    seed_prompt=None,
+                    proposer_completion=None,
+                    answerer_completion=None,
+                    reward=0.0,
+                    metadata={"phase": "proposer", "failed": True}
+                )
                     continue
 
                 # Reward for correct assertion code
@@ -263,18 +310,23 @@ def main():
                 inputs = tokenizer(text_prompt, return_tensors="pt").to(proposer_model.device)
                 input_len = inputs["input_ids"].shape[1]
             
-                with torch.no_grad():
-                    out = answerer_model.generate(**inputs, max_new_tokens=256, do_sample=True, temperature=0.7)
+                scores = []
+                for i in range(ANS_ATTEMPTS_PROP_TRAIN):
+                    with torch.no_grad():
+                        out = answerer_model.generate(**inputs, max_new_tokens=ANS_TOKENS_PROP_TRAIN,
+                                                      do_sample=True, temperature=ANS_TEMP_PROP_TRAIN)
 
-                generated_tokens = out[0][input_len:]
-            
-                raw_solution = tokenizer.decode(generated_tokens, skip_special_tokens=True)
-                solution = clean_code_output(raw_solution)
+                    generated_tokens = out[0][input_len:]
                 
-                # Reward heuristic: Target problems that are challenging yet solvable (~0.5 pass score)
-                score = sandbox.evaluate(solution, test_code)
-                # edited below diff_reward as sandbox.evaluate implies higher reward better, not difficulty yet
-                diff_reward = score
+                    raw_solution = tokenizer.decode(generated_tokens, skip_special_tokens=True)
+                    solution = clean_code_output(raw_solution)
+                    
+                    # Reward heuristic: Target problems that are challenging yet solvable (~0.5 pass score)
+                    score = sandbox.evaluate(solution, test_code)
+                    scores.append(score)
+
+                avg_score = sum(scores) / len(scores)
+                diff_reward = 1.0 - abs(avg_score - 0.5) * 2
 
                 total_reward = format_score * 0.2 + diff_reward * 0.6 + assert_score * 0.2
 
@@ -283,8 +335,9 @@ def main():
                     seed_prompt=prompt,
                     proposer_completion=comp_text,
                     answerer_completion=solution,
-                    reward=total_reward,
-                    metadata={"phase": "proposer", "format": format_score, "assert": assert_score, "eval_reward": score}
+                    reward=round(total_reward, 2),
+                    metadata={"phase": "proposer", "format": round(format_score,2), 
+                              "assert": round(assert_score, 2), "eval_reward": score, "ans_avg":round(avg_score,2)}
                 )
 
                 rewards.append(total_reward)
@@ -325,7 +378,8 @@ def main():
             input_len = inputs["input_ids"].shape[1]
             
             with torch.no_grad():
-                out = proposer_model.generate(**inputs, max_new_tokens=256, do_sample=True, temperature=0.7)
+                out = proposer_model.generate(**inputs, max_new_tokens=PROP_TOKENS_ANS_TRAIN,
+                                              do_sample=True, temperature=PROP_TEMP_ANS_TRAIN)
 
             generated_tokens = out[0][input_len:]
             
