@@ -70,21 +70,73 @@ def get_answerer_prompt(problem_desc):
     answerer_messages = [
             {
                 "role": "system", 
-                "content": (
-                    "You are a expert programmer."
-                    "FORMAT REQUIREMENT: Output ONLY valid Python code. The code should have only one function solution(). Do not include any conversational filler."
-                    "Use 4 space character for indentation, \\n to separate each line"
+                "content": ( """
+### Task: Create a Python Code Snippet to solve provided problem
+
+### Code Requirements:
+- Name the entry function `f` (e.g., `def f(...): ...`)
+- Ensure the function returns a value
+- Include at least one input parameter
+- Make the function deterministic
+- AVOID THE FOLLOWING:
+  * Random functions or variables
+  * Date/time operations
+  * I/O operations (reading files, network requests)
+  * Printing or logging
+  * Any external state
+  * Doc strings
+- Ensure execution completes within 10 seconds on a modern CPU
+- All imports and class definitions should be at the very top of the code snippet
+- The snippet should end with a return statement from the main function `f(...)`, DO NOT ADD ANYTHING AFTER FINAL RETURN STATEMENT"
+- Add comments using # to support logic flow of code, AVOID chat response style output
+
+### Formatting:
+- Format your code with:
+  def f(...):
+      # your code here
+      return ...
+  
+### Example Format:
+def f(name: str, info: dict):
+    # code logic here
+    return result
+
+### Evaluation Criteria:
+- Executability, your code should be executable when given arguments into function f(...)
+- Correctness, your code should be able to solve the given problem
+"""
                 )
+            },
+            {
+            "role": "user",
+            "content": "Write a Python function to solve this problem: string reversal\n"
+            },
+                    {
+            "role": "assistant",
+            "content": (
+                "def f(string):\n"
+                "    s = string[::-1]\n"
+                "    return s"
+            )
+            },
+            {
+            "role": "user",
+            "content": "Write a Python function to solve this problem: array sum\n"
+            },
+            {
+            "role": "assistant",
+            "content": (
+                "def f(array):\n"
+                "    sum = 0\n"
+                "    for value in array:\n"
+                "        sum += value\n"
+                "    return sum"
+            )
             },
             {
                 "role": "user", 
                 "content": (
                     f"Write a Python function to solve this problem:\n{problem_desc}\n\n"
-                    "Strictly adhere to this layout:\n"
-                    "```python\n"
-                    "def solution(args):\n"
-                    "\\t# Working Code\n"
-                    "```"
                 )
             }
         ]
