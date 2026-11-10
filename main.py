@@ -141,7 +141,6 @@ def clean_code_output(text: str) -> str:
     matches = re.findall(pattern, text, re.DOTALL)
     if matches:
         return "\n".join(match.strip() for match in matches)
-        return "\n".join(match.strip() for match in matches)
     return text.strip()
 
 def log_rollout(seed_prompt, proposer_completion, answerer_completion, reward, metadata=None):

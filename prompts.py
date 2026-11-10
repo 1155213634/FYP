@@ -84,9 +84,11 @@ def get_answerer_prompt(problem_desc):
   * I/O operations (reading files, network requests)
   * Printing or logging
   * Any external state
+  * Doc strings
 - Ensure execution completes within 10 seconds on a modern CPU
 - All imports and class definitions should be at the very top of the code snippet
 - The snippet should end with a return statement from the main function `f(...)`, DO NOT ADD ANYTHING AFTER FINAL RETURN STATEMENT"
+- Add comments using # to support logic flow of code, AVOID chat response style output
 
 ### Formatting:
 - Format your code with:
@@ -99,8 +101,37 @@ def f(name: str, info: dict):
     # code logic here
     return result
 
+### Evaluation Criteria:
+- Executability, your code should be executable when given arguments into function f(...)
+- Correctness, your code should be able to solve the given problem
 """
                 )
+            },
+            {
+            "role": "user",
+            "content": "Write a Python function to solve this problem: string reversal\n"
+            },
+                    {
+            "role": "assistant",
+            "content": (
+                "def f(string):\n"
+                "    s = string[::-1]\n"
+                "    return s"
+            )
+            },
+            {
+            "role": "user",
+            "content": "Write a Python function to solve this problem: array sum\n"
+            },
+            {
+            "role": "assistant",
+            "content": (
+                "def f(array):\n"
+                "    sum = 0\n"
+                "    for value in array:\n"
+                "        sum += value\n"
+                "    return sum"
+            )
             },
             {
                 "role": "user", 

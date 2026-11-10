@@ -24,20 +24,19 @@ class DockerSandbox:
         self.timeout = timeout_seconds
 
     def evaluate(self, solution_code: str, test_code: str) -> float:
+        list_of_assert = test_code.split("\n")
+        assert_stuff = ""
+        for assert_str in list_of_assert:
+            assert_stuff += self._assert_code_str_generation(assert_str)
         full_script = f"""\
 {solution_code}
 
-try:
-{self._indent_assert(test_code)}
-    print("ALL_TESTS_PASSED")
-    exit(0)
-except AssertionError as ae:
-    print(f"Assertion Failed: {{ae}}")
-    exit(1)
-except Exception as e:
-    print(f"Test Error: {{e}}")
-    exit(1)
-        """
+score = 0
+{assert_stuff}
+
+print(score)
+exit(0)
+"""
         with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False, encoding="utf-8") as f:
             f.write(full_script)
             temp_file_path = f.name
@@ -62,12 +61,13 @@ except Exception as e:
             )
             result = container.wait(timeout=self.timeout)
             logs = container.logs(stdout=True, stderr=True).decode('utf-8')
+            score = logs.strip()
             
-            if result.get('StatusCode', -1) == 0 and "ALL_TESTS_PASSED" in logs:
-                return 1.0
+            if result.get('StatusCode', -1) == 0:
+                return int(score)
             return 0.0
-        except Exception:
-            return 0.0
+        # except Exception:
+        #     return 0.0
         finally:
             if container:
                 try: container.remove(force=True)
@@ -76,8 +76,14 @@ except Exception as e:
                 try: os.unlink(temp_file_path)
                 except Exception: pass
 
-    def _indent_assert(self, code: str, spaces: int = 4) -> str:
-        return "\n".join([" " * spaces + line.lstrip() for line in code.splitlines()])
+    def _assert_code_str_generation(self, assert_str):
+        return f"""
+try:
+    {assert_str}
+    score += 1
+except AssertionError:
+    pass
+"""
 
 
 # ==========================================
@@ -126,11 +132,11 @@ def log_rollout(answerer_completion, reward, metadata=None):
     """Appends a complete self-play rollout record (Answerer) to JSONL."""
     record = {
         "reward": reward,
+        "answerer_completion": answerer_completion,
         "metadata": metadata or {},
-        "answerer_completion": answerer_completion
     }
     with open(LOG_FILE, "a", encoding="utf-8") as f:
-        f.write(json.dumps(record, ensure_ascii=False) + "\n")
+        f.write(json.dumps(record, ensure_ascii=False, indent=4) + "\n")
 
 # ==========================================
 # 3. SELF-PLAY TRAINING ORCHESTRATION
@@ -190,7 +196,7 @@ def main():
                 log_rollout(
                     answerer_completion=solution,
                     reward=score,
-                    metadata={"phase": "answerer", "problem_description": prob_desc, "test_code": test_code}
+                    metadata={"iteration" : iteration, "phase": "answerer", "problem_description": prob_desc, "test_code": test_code, "raw_sol_text": raw_sol_text}
                 )
 
                 rewards.append(score)
