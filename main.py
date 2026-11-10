@@ -40,20 +40,19 @@ class DockerSandbox:
         self.timeout = timeout_seconds
 
     def evaluate(self, solution_code: str, test_code: str) -> float:
+        list_of_assert = test_code.split("\n")
+        assert_stuff = ""
+        for assert_str in list_of_assert:
+            assert_stuff += self._assert_code_str_generation(assert_str)
         full_script = f"""\
 {solution_code}
 
-try:
-{self._indent_assert(test_code)}
-    print("ALL_TESTS_PASSED")
-    exit(0)
-except AssertionError as ae:
-    print(f"Assertion Failed: {{ae}}")
-    exit(1)
-except Exception as e:
-    print(f"Test Error: {{e}}")
-    exit(1)
-        """
+score = 0
+{assert_stuff}
+
+print(score)
+exit(0)
+"""
         with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False, encoding="utf-8") as f:
             f.write(full_script)
             temp_file_path = f.name
@@ -78,12 +77,16 @@ except Exception as e:
             )
             result = container.wait(timeout=self.timeout)
             logs = container.logs(stdout=True, stderr=True).decode('utf-8')
+            try:
+                score = float(logs.strip())
+            except ValueError:
+                raise Exception
             
-            if result.get('StatusCode', -1) == 0 and "ALL_TESTS_PASSED" in logs:
-                return 1.0
+            if result.get('StatusCode', -1) == 0:
+                return score
             return 0.0
         except Exception:
-            return 0.0
+             return 0.0
         finally:
             if container:
                 try: container.remove(force=True)
@@ -92,17 +95,31 @@ except Exception as e:
                 try: os.unlink(temp_file_path)
                 except Exception: pass
 
-    # def 
-    # code_pattern = r"```(?:python\s*)?\n?(.*?)\n?```"
-    # code_snippet = code_match.group(1).strip()
-
-    def _indent_assert(self, code: str, spaces: int = 4) -> str:
-        return "\n".join([" " * spaces + line.lstrip() for line in code.splitlines()])
+    def _assert_code_str_generation(self, assert_str):
+        return f"""
+try:
+    {assert_str}
+    score += 1
+except AssertionError:
+    pass
+"""
 
 
 # ==========================================
 # 2. UTILITIES
 # ==========================================
+
+def clean_code_output(text: str) -> str:
+    """
+    Extracts pure Python code if enclosed in markdown code blocks,
+    otherwise returns the stripped raw text.
+    """
+    pattern = r"```(?:python)?\n(.*?)\n```"
+    matches = re.findall(pattern, text, re.DOTALL)
+    if matches:
+        return "\n".join(match.strip() for match in matches)
+    return text.strip()
+
 def parse_proposer_output(proposer_text: str):
     """
     Parses proposer text into problem description and test assertions.
@@ -116,30 +133,6 @@ def parse_proposer_output(proposer_text: str):
     test_code = parts[1].strip()
     test_code = clean_code_output(test_code)
     return problem_desc, test_code
-
-
-def clean_code_output(text: str) -> str:
-    """
-    Extracts pure Python code if enclosed in markdown code blocks,
-    otherwise returns the stripped raw text.
-    """
-    pattern = r"```(?:python)?\n(.*?)\n```"
-    matches = re.findall(pattern, text, re.DOTALL)
-    if matches:
-        return "\n".join(match.strip() for match in matches)
-    return text.strip()
-
-def log_rollout(seed_prompt, proposer_completion, answerer_completion, reward, metadata=None):
-    """Appends a complete self-play rollout record (Proposer + Answerer) to JSONL."""
-    record = {
-        # "seed_prompt": seed_prompt,
-        "reward": reward,
-        "metadata": metadata or {},
-        "proposer_completion": proposer_completion,
-        "answerer_completion": answerer_completion
-    }
-    with open(LOG_FILE, "a", encoding="utf-8") as f:
-        f.write(json.dumps(record, ensure_ascii=False) + "\n")
 
 def validate_assertions(test_code_str):
     """Safely checks if test code is syntactically valid and contains assertions."""
@@ -185,6 +178,53 @@ def validate_assertions(test_code_str):
         score += 0.3
         
     return score
+
+def assert_code_parser(code: str) -> str:
+    assert_pattern = r"(?m)^[ \t]*assert[ \t]+([A-Za-z_]\w*)[ \t]*\("
+    asserts = code.split("\n")
+    flags = re.DOTALL
+    temp_list = []
+    for assert_statement in asserts:
+        temp_list.append(re.sub(assert_pattern, "assert f(", assert_statement, flags))
+    return "\n".join(assert_pattern.strip() for assert_pattern in temp_list)
+
+def solution_code_parser(text: str) -> str | None:
+    match = re.search(
+        r"```(?:python[ \t]*)?\s*(.*?)```",
+        text,
+        re.DOTALL | re.IGNORECASE,
+    )
+    code = match.group(1) if match else text
+
+    function_match = re.search(
+        r"(?m)^[ \t]*def[ \t]+([A-Za-z_]\w*)[ \t]*\(",
+        code,
+    )
+    if not function_match:
+        return text
+
+    original_name = function_match.group(1)
+    if original_name != "f":
+        code = re.sub(
+            rf"(?m)^([ \t]*def[ \t]+){re.escape(original_name)}(?=[ \t]*\()",
+            r"\1f",
+            code,
+            count=1,
+        )
+
+    return code
+
+def log_rollout(proposer_completion, answerer_completion, reward, metadata=None, seed_prompt=None):
+    """Appends a complete self-play rollout record (Proposer + Answerer) to JSONL."""
+    record = {
+        # "seed_prompt": seed_prompt,
+        "reward": reward,
+        "metadata": metadata or {},
+        "proposer_completion": proposer_completion,
+        "answerer_completion": answerer_completion
+    }
+    with open(LOG_FILE, "a", encoding="utf-8") as f:
+        f.write(json.dumps(record, ensure_ascii=False) + "\n")
 
 
 # ==========================================
@@ -283,6 +323,8 @@ def main():
                 )
                     continue
 
+                test_code = assert_code_parser(test_code)
+
                 # Reward for correct assertion code
                 assert_score = 0.0
                 assert_score += validate_assertions(test_code)
@@ -368,6 +410,7 @@ def main():
             generated_q = tokenizer.decode(generated_tokens, skip_special_tokens=True)
             
             prob_desc, test_code = parse_proposer_output(generated_q)
+            test_code = assert_code_parser(test_code)
             if validate_assertions(test_code) <= 0:
                 prob_desc, test_code = None, None
             if prob_desc is not None and test_code is not None:
@@ -380,29 +423,27 @@ def main():
             print("Error: Proposer failed to follow format after multiple retries. Skipping this iteration's Answerer training.")
             continue
 
-
         def answerer_reward_func(prompts, completions, **kwargs):
             assert test_code is not None
 
             rewards = []
             for prompt, completion in zip(prompts, completions):
                 raw_sol_text = completion[0]["content"] if isinstance(completion, list) else completion
-                solution = clean_code_output(raw_sol_text)
+                solution = solution_code_parser(raw_sol_text)
                 
                 score = sandbox.evaluate(solution, test_code)
 
                 # Log results
                 log_rollout(
-                    seed_prompt=prompt,
-                    proposer_completion=prob_desc,
+                    proposer_completion=generated_q,
                     answerer_completion=solution,
                     reward=score,
-                    metadata={"phase": "answerer", "test_code": test_code}
+                    metadata={"iteration" : iteration, "phase": "answerer", "problem_description": prob_desc, "test_code": test_code, "raw_sol_text": raw_sol_text}
                 )
 
                 rewards.append(score)
             return rewards
-
+        
 
         answerer_prompt = tokenizer.apply_chat_template(
             get_answerer_prompt(prob_desc), tokenize=False, add_generation_prompt=True
