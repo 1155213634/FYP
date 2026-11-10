@@ -17,7 +17,7 @@ LOG_FILE = "./training_rollouts.jsonl"
 # ==========================================
 # MODEL_ID = "HuggingFaceTB/SmolLM2-360M-Instruct"
 MODEL_ID = "Qwen/Qwen2.5-Coder-1.5B-Instruct"
-# MODEL_ID = "Qwen/Qwen2.5-Coder-3B-Instruct"    
+# MODEL_ID = "Qwen/Qwen2.5-Coder-3B-Instruct"
 
 LEARN_RATE = 5e-6
 MAX_ITER = 10                      # No. of total loops
@@ -151,11 +151,11 @@ def validate_assertions(test_code_str):
     except SyntaxError:
         return 0.0
 
-    # Needs to Assert 0.2
+    # Needs to Assert 0.4
     if "assert" in test_code_str:
-        score += 0.2
+        score += 0.4
 
-    # Asser Less Than Four 0.2
+    # Asser Less Than Four 0.3
     assertion_count = 0
     if syntax_valid:
         for node in ast.walk(tree):
@@ -163,18 +163,6 @@ def validate_assertions(test_code_str):
                 assertion_count += 1
     
     if assertion_count < 4:
-        score += 0.2
-
-    # Asserted Function Is Solution() 0.3
-    has_solution_call = False
-    if syntax_valid:
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Call):
-                if isinstance(node.func, ast.Name) and node.func.id == 'solution':
-                    has_solution_call = True
-                    break
-    
-    if has_solution_call:
         score += 0.3
         
     return score
@@ -461,9 +449,9 @@ def main():
         # Saving
         if (iteration+1) % 10 == 0:
             print("Saving final models to disk...")
-            proposer_model.save_pretrained(f"./trained/{iteration+1}_proposer_model")
-            answerer_model.save_pretrained(f"./trained/{iteration+1}_answerer_model")
-            tokenizer.save_pretrained(f"./trained/{iteration+1}_tokenizer")
+            proposer_model.save_pretrained(f"./trained/{MODEL_ID}/{iteration+1}_proposer_model")
+            answerer_model.save_pretrained(f"./trained/{MODEL_ID}/{iteration+1}_answerer_model")
+            tokenizer.save_pretrained(f"./trained/{MODEL_ID}/{iteration+1}_tokenizer")
             print("Models saved successfully!")
 
 
