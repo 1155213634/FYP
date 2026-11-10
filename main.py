@@ -15,7 +15,13 @@ LOG_FILE = "./training_rollouts.jsonl"
 # ==========================================
 # 0. CONSTANTS
 # ==========================================
+# MODEL_ID = "HuggingFaceTB/SmolLM2-360M-Instruct"
+MODEL_ID = "Qwen/Qwen2.5-Coder-1.5B-Instruct"
+# MODEL_ID = "Qwen/Qwen2.5-Coder-3B-Instruct"    
+
+LEARN_RATE = 5e-6
 MAX_ITER = 10                      # No. of total loops
+GROUP_SIZE = 4                     # GRPO group size
 
 ANS_ATTEMPTS_PROP_TRAIN = 4        # No. of answerer attempts to calculate proposer difficulty score
 ANS_TOKENS_PROP_TRAIN = 256        # No. of max tokens for answerer for training proposer
@@ -189,9 +195,6 @@ def main():
     with open(LOG_FILE, "w", encoding="utf-8") as f:
         pass
 
-    MODEL_ID = "HuggingFaceTB/SmolLM2-360M-Instruct"
-    # MODEL_ID = "Qwen/Qwen2.5-Coder-1.5B-Instruct"
-    # MODEL_ID = "Qwen/Qwen2.5-Coder-3B-Instruct"    
     sandbox = DockerSandbox(timeout_seconds=3)
 
     tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
@@ -205,10 +208,10 @@ def main():
     # Common TRL configuration
     proposer_args = GRPOConfig(
         output_dir="grpo_proposer_output",
-        learning_rate=1e-4,
+        learning_rate=LEARN_RATE,
         per_device_train_batch_size=1,
         gradient_accumulation_steps=4,
-        num_generations=4,          # Group size (G) for GRPO
+        num_generations=GROUP_SIZE,          # Group size (G) for GRPO
         max_completion_length=256,
         temperature=0.8,            # Temperature for completions
         repetition_penalty=1.15,    # Additional penalty for repeating
@@ -219,10 +222,10 @@ def main():
 
     answerer_args = GRPOConfig(
         output_dir="grpo_answerer_output",
-        learning_rate=1e-4,
+        learning_rate=LEARN_RATE,
         per_device_train_batch_size=1,
         gradient_accumulation_steps=4,
-        num_generations=4,          # Group size (G) for GRPO
+        num_generations=GROUP_SIZE,          # Group size (G) for GRPO
         max_completion_length=256,
         logging_steps=5,
         bf16=True,
