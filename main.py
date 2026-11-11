@@ -15,12 +15,12 @@ LOG_FILE = "./training_rollouts.jsonl"
 # ==========================================
 # 0. CONSTANTS
 # ==========================================
-# MODEL_ID = "HuggingFaceTB/SmolLM2-360M-Instruct"
-MODEL_ID = "Qwen/Qwen2.5-Coder-1.5B-Instruct"
+MODEL_ID = "HuggingFaceTB/SmolLM2-360M-Instruct"
+# MODEL_ID = "Qwen/Qwen2.5-Coder-1.5B-Instruct"
 # MODEL_ID = "Qwen/Qwen2.5-Coder-3B-Instruct"
 
 LEARN_RATE = 5e-6
-MAX_ITER = 10                      # No. of total loops
+MAX_ITER = 50                      # No. of total loops
 GROUP_SIZE = 4                     # GRPO group size
 
 ANS_ATTEMPTS_PROP_TRAIN = 4        # No. of answerer attempts to calculate proposer difficulty score
@@ -78,7 +78,7 @@ exit(0)
             result = container.wait(timeout=self.timeout)
             logs = container.logs(stdout=True, stderr=True).decode('utf-8')
             try:
-                score = float(logs.strip())
+                score = float(logs.strip()) / len(list_of_assert)
             except ValueError:
                 raise Exception
             
@@ -173,7 +173,7 @@ def assert_code_parser(code: str) -> str:
     flags = re.DOTALL
     temp_list = []
     for assert_statement in asserts:
-        temp_list.append(re.sub(assert_pattern, "assert f(", assert_statement, flags))
+        temp_list.append(re.sub(assert_pattern, "assert f(", assert_statement, flags=flags))
     return "\n".join(assert_pattern.strip() for assert_pattern in temp_list)
 
 def solution_code_parser(text: str) -> str | None:
@@ -323,12 +323,13 @@ def main():
                 input_len = inputs["input_ids"].shape[1]
             
                 scores = []
-                for i in range(ANS_ATTEMPTS_PROP_TRAIN):
-                    with torch.no_grad():
-                        out = answerer_model.generate(**inputs, max_new_tokens=ANS_TOKENS_PROP_TRAIN,
-                                                      do_sample=True, temperature=ANS_TEMP_PROP_TRAIN)
 
-                    generated_tokens = out[0][input_len:]
+                with torch.no_grad():
+                        outs = answerer_model.generate(**inputs, max_new_tokens=ANS_TOKENS_PROP_TRAIN,
+                                                      do_sample=True, temperature=ANS_TEMP_PROP_TRAIN,
+                                                      num_return_sequences=4)
+                for out in outs:
+                    generated_tokens = out[input_len:]
                 
                     raw_solution = tokenizer.decode(generated_tokens, skip_special_tokens=True)
                     solution = clean_code_output(raw_solution)
