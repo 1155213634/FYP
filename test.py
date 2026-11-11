@@ -1,17 +1,20 @@
 import os
 import torch
 import json
+import re
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from docker_code import DockerSandbox
+from utils import assert_code_parser, solution_code_parser
+from prompts import get_answerer_prompt
 
 # ==========================================
 # Configuration Constants
 # ==========================================
-PARENT_DIR = "trained/Qwen/Qwen2.5-Coder-1.5B-Instruct"
-MODEL_PATH = f"{PARENT_DIR}/10_answerer_model"
-TOKENIZER_PATH = f"{PARENT_DIR}/10_tokenizer"
+PARENT_DIR = "ready/Qwen/Qwen2.5-Coder-3B-Instruct"
+MODEL_PATH = f"{PARENT_DIR}/50_answerer_model"
+TOKENIZER_PATH = f"{PARENT_DIR}/50_tokenizer"
 
 DATASET_NAME = "openai/openai_humaneval"
 DATASET_SPLIT = "test"
@@ -49,14 +52,21 @@ evaluation_logs = []
 
 print(f"Running generation and sandbox evaluation on {len(dataset)} problems...")
 
+def parse_human_eval_asserts(str):
+    list_of_asserts = str.split("assert")[1:]
+    return "\n".join("assert " + assert_statement.strip() for assert_statement in list_of_asserts)
+
+
 # Loop through problems
 for i, problem in enumerate(dataset):
     task_id = problem.get("task_id", f"problem_{i}")
     prompt_text = problem["prompt"]
-    test_code = problem["test"]
+    human_eval_test_code = problem["test"]
     
     # Tokenize and generate completion
-    inputs = tokenizer(prompt_text, return_tensors="pt").to(model.device)
+    text_prompt = tokenizer.apply_chat_template(get_answerer_prompt(prompt_text), tokenize=False, add_generation_prompt=True)
+    inputs = tokenizer(text_prompt, return_tensors="pt").to(model.device)
+    input_len = inputs["input_ids"].shape[1]
     outputs = model.generate(
         **inputs,
         max_new_tokens=256,
@@ -65,10 +75,12 @@ for i, problem in enumerate(dataset):
         pad_token_id=tokenizer.pad_token_id
     )
     
-    generated_solution = tokenizer.decode(outputs[0], skip_special_tokens=True)
-    
+    generated_solution = tokenizer.decode(outputs[0][input_len:], skip_special_tokens=True)
+
+    test_code = assert_code_parser(parse_human_eval_asserts(human_eval_test_code))
+    solution = solution_code_parser(generated_solution)
     # Evaluate solution using DockerSandbox
-    score = sandbox.evaluate(solution_code=generated_solution, test_code=test_code)
+    score = sandbox.evaluate(solution_code=solution, test_code=test_code, normalized=False)
     
     # Calculate how many assertions exist in this problem
     valid_assertions = [line for line in test_code.split("\n") if line.strip()]
