@@ -8,6 +8,7 @@ training_rollouts.jsonl
 *:Zone.Identifier
 test_question_and_assert.py
 test_solver.py
+results/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
