@@ -21,6 +21,7 @@ DATASET_SPLIT = "test"
 
 OUTPUT_DIR = "./results"
 OUTPUT_FILE = os.path.join(OUTPUT_DIR, "evaluation_results.json")
+STORE_LOG = False
 
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
@@ -96,17 +97,19 @@ for i, problem in enumerate(dataset):
     print(f"[{i+1}/{total_problems}] ID: {task_id} -> {status} (Assertions: {int(score)}/{max_possible_assertions})")
 
     # Store detailed logs for this problem
-    evaluation_logs.append({
-        "task_id": task_id,
-        "status": status,
-        "score": score,
-        "max_score": max_possible_assertions,
-        "prompt": prompt_text,
-        "generated_code": generated_solution,
-        "test_code": test_code
-    })
+    if STORE_LOG:
+        evaluation_logs.append({
+            "task_id": task_id,
+            "status": status,
+            "score": score,
+            "max_score": max_possible_assertions,
+            "prompt": prompt_text,
+            "generated_code": generated_solution,
+            "test_code": test_code
+        })
+    else:
+        evaluation_logs = None
     
-    break
 
 # Calculate final pass rate percentage
 pass_rate = (passed_problems / total_problems) * 100 if total_problems > 0 else 0
