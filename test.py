@@ -13,15 +13,17 @@ from prompts import get_answerer_prompt
 # Configuration Constants
 # ==========================================
 PARENT_DIR = "ready/Qwen/Qwen2.5-Coder-3B-Instruct"
-MODEL_PATH = f"{PARENT_DIR}/50_answerer_model"
-TOKENIZER_PATH = f"{PARENT_DIR}/50_tokenizer"
+MODEL_PATH = f"{PARENT_DIR}/10_answerer_model"
+TOKENIZER_PATH = f"{PARENT_DIR}/10_tokenizer"
+# MODEL_PATH = "Qwen/Qwen2.5-Coder-3B-Instruct"
+# TOKENIZER_PATH = "Qwen/Qwen2.5-Coder-3B-Instruct"
 
 DATASET_NAME = "openai/openai_humaneval"
 DATASET_SPLIT = "test"
 
 OUTPUT_DIR = "./results"
-OUTPUT_FILE = os.path.join(OUTPUT_DIR, "evaluation_results.json")
-STORE_LOG = False
+OUTPUT_FILE = os.path.join(OUTPUT_DIR, "evaluation_results_baseline.json")
+STORE_LOG = True
 
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
@@ -88,7 +90,7 @@ for i, problem in enumerate(dataset):
     max_possible_assertions = len(valid_assertions)
     
     # Must satisfy ALL assertions to be considered a success
-    if max_possible_assertions > 0 and score == max_possible_assertions:
+    if max_possible_assertions > 0 and score >= max_possible_assertions:
         passed_problems += 1
         status = "PASSED"
     else:

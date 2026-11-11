@@ -9,7 +9,8 @@ class DockerSandbox:
         self.timeout = timeout_seconds
 
     def evaluate(self, solution_code: str, test_code: str, normalized=True) -> float:
-        list_of_assert = test_code.split("\n")
+        list_of_lines = test_code.split("\n")
+        list_of_assert = [assert_statement for assert_statement in list_of_lines if "assert" in assert_statement]
         assert_stuff = ""
         for assert_str in list_of_assert:
             assert_stuff += self._assert_code_str_generation(assert_str)
