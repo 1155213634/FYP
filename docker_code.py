@@ -8,7 +8,7 @@ class DockerSandbox:
         self.image_name = image_name
         self.timeout = timeout_seconds
 
-    def evaluate(self, solution_code: str, test_code: str) -> float:
+    def evaluate(self, solution_code: str, test_code: str, normalized=True) -> float:
         list_of_assert = test_code.split("\n")
         assert_stuff = ""
         for assert_str in list_of_assert:
@@ -47,12 +47,16 @@ exit(0)
             result = container.wait(timeout=self.timeout)
             logs = container.logs(stdout=True, stderr=True).decode('utf-8')
             try:
-                score = float(logs.strip()) / len(list_of_assert)
+                score = float(logs.strip()) 
+                norm_score = score / len(list_of_assert)
             except ValueError:
                 raise Exception
             
             if result.get('StatusCode', -1) == 0:
-                return score
+                if normalized:
+                    return norm_score
+                else:
+                    return score
             return 0.0
         except Exception:
              return 0.0
