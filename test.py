@@ -2,6 +2,7 @@ import os
 import torch
 import json
 import re
+import gc
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -19,8 +20,8 @@ def test_model_performance(iter, model_path, testset="humaneval", store_log=Fals
         MODEL_PATH = model_path
         TOKENIZER_PATH = model_path
     else:
-        MODEL_PATH = f"{PARENT_DIR}/{iter}_answerer_model"
-        TOKENIZER_PATH = f"{PARENT_DIR}/{iter}_tokenizer"
+        MODEL_PATH = f"ready/{PARENT_DIR}/{iter}_answerer_model"
+        TOKENIZER_PATH = f"ready/{PARENT_DIR}/{iter}_tokenizer"
 
     DATASET_NAME = "openai/openai_humaneval"
     DATASET_SPLIT = "test"
@@ -61,7 +62,7 @@ def test_model_performance(iter, model_path, testset="humaneval", store_log=Fals
 
     def parse_human_eval_asserts(str):
         list_of_asserts = str.split("assert")[1:]
-        return "\n".join("assert " + assert_statement.strip() for assert_statement in list_of_asserts)
+        return "\n".join("assert " + assert_statement.strip().replace('\n','') for assert_statement in list_of_asserts)
 
 
     # Loop through problems
@@ -77,8 +78,7 @@ def test_model_performance(iter, model_path, testset="humaneval", store_log=Fals
         outputs = model.generate(
             **inputs,
             max_new_tokens=256,
-            temperature=0.2,
-            do_sample=True,
+            do_sample=False,
             pad_token_id=tokenizer.pad_token_id
         )
         
@@ -139,3 +139,8 @@ def test_model_performance(iter, model_path, testset="humaneval", store_log=Fals
     print(f"Total Problems Tested: {total_problems}")
     print(f"Successfully Passed All Assertions: {passed_problems}")
     print(f"Pass@1 Rate: {pass_rate:.2f}%")
+
+    del model
+    del tokenizer
+    gc.collect()
+    torch.cuda.empty_cache()

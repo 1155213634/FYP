@@ -60,12 +60,16 @@ def validate_assertions(test_code_str):
     return score
 
 def assert_code_parser(code: str) -> str:
+    assert_not_pattern = r"(?m)^[ \t]*assert not[ \t]+([A-Za-z_]\w*)[ \t]*\("
     assert_pattern = r"(?m)^[ \t]*assert[ \t]+([A-Za-z_]\w*)[ \t]*\("
     asserts = code.split("\n")
     flags = re.DOTALL
     temp_list = []
     for assert_statement in asserts:
-        temp_list.append(re.sub(assert_pattern, "assert f(", assert_statement, flags=flags))
+        if re.match(assert_not_pattern, assert_statement, flags=flags):
+            temp_list.append(re.sub(assert_not_pattern, "assert not f(", assert_statement, flags=flags))
+        else:
+            temp_list.append(re.sub(assert_pattern, "assert f(", assert_statement, flags=flags))
     return "\n".join(assert_pattern.strip() for assert_pattern in temp_list)
 
 def solution_code_parser(text: str) -> str | None:

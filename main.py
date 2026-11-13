@@ -10,14 +10,16 @@ from prompts import get_proposer_prompt, get_answerer_prompt
 from docker_code import DockerSandbox
 from utils import clean_code_output, parse_proposer_output, validate_assertions, assert_code_parser, solution_code_parser
 
-LOG_FILE = "./results/training_rollouts.jsonl"
-
 # ==========================================
 # 0. CONSTANTS
 # ==========================================
-MODEL_ID = "HuggingFaceTB/SmolLM2-360M-Instruct"
+# MODEL_ID = "HuggingFaceTB/SmolLM2-360M-Instruct"
 # MODEL_ID = "Qwen/Qwen2.5-Coder-1.5B-Instruct"
-# MODEL_ID = "Qwen/Qwen2.5-Coder-3B-Instruct"
+MODEL_ID = "Qwen/Qwen2.5-Coder-3B-Instruct"
+# MODEL_ID = "stabilityai/stable-code-instruct-3b"
+# MODEL_ID = "meta-llama/Llama-3.2-3B-Instruct"
+
+LOG_FILE = f"./results/{MODEL_ID}/training_rollouts.jsonl"
 
 LEARN_RATE = 5e-6
 MAX_ITER = 50                      # No. of total loops
@@ -231,6 +233,8 @@ def main():
             generated_q = tokenizer.decode(generated_tokens, skip_special_tokens=True)
             
             prob_desc, test_code = parse_proposer_output(generated_q)
+            if prob_desc is None or test_code is None:
+                continue
             test_code = assert_code_parser(test_code)
             if validate_assertions(test_code) <= 0:
                 prob_desc, test_code = None, None
