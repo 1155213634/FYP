@@ -11,6 +11,15 @@ from utils import assert_code_parser, solution_code_parser
 from prompts import get_answerer_prompt
 
 def test_model_performance(iter, model_path, testset="humaneval", store_log=False):
+
+    def parse_human_eval_asserts(str):
+        list_of_asserts = str.split("assert")[1:]
+        return "\n".join("assert " + assert_statement.strip().replace('\n','') for assert_statement in list_of_asserts)
+
+    def parse_mbppplus_asserts(list):
+        return "\n".join(assert_statement.strip() for assert_statement in list)
+        
+
     # ==========================================
     # Configuration Constants
     # ==========================================
@@ -23,11 +32,15 @@ def test_model_performance(iter, model_path, testset="humaneval", store_log=Fals
         MODEL_PATH = f"ready/{PARENT_DIR}/{iter}_answerer_model"
         TOKENIZER_PATH = f"ready/{PARENT_DIR}/{iter}_tokenizer"
 
-    DATASET_NAME = "openai/openai_humaneval"
+    if testset == "humaneval":
+        DATASET_NAME = "openai/openai_humaneval"
+    elif testset == "mbppplus":
+        DATASET_NAME = "evalplus/mbppplus"
+
     DATASET_SPLIT = "test"
 
     OUTPUT_DIR = f"./results/{model_path}"
-    OUTPUT_FILE = os.path.join(OUTPUT_DIR, f"evaluation_results_{iter}.json")
+    OUTPUT_FILE = os.path.join(OUTPUT_DIR, f"{testset}_evaluation_results_{iter}.json")
     STORE_LOG = True
 
     os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -60,16 +73,19 @@ def test_model_performance(iter, model_path, testset="humaneval", store_log=Fals
 
     print(f"Running generation and sandbox evaluation on {len(dataset)} problems...")
 
-    def parse_human_eval_asserts(str):
-        list_of_asserts = str.split("assert")[1:]
-        return "\n".join("assert " + assert_statement.strip().replace('\n','') for assert_statement in list_of_asserts)
-
-
     # Loop through problems
     for i, problem in enumerate(dataset):
-        task_id = problem.get("task_id", f"problem_{i}")
-        prompt_text = problem["prompt"]
-        human_eval_test_code = problem["test"]
+        if testset == "humaneval":
+            task_id = problem.get("task_id", f"problem_{i}")
+            prompt_text = problem["prompt"]
+            human_eval_test_code = problem["test"]
+            test_code = assert_code_parser(parse_human_eval_asserts(human_eval_test_code))
+        elif testset == "mbppplus":
+            task_id = problem.get("task_id", f"problem_{i}")
+            prompt_text = problem["prompt"]
+            mbppplus_test_code_list = problem["test_list"]
+            test_code = assert_code_parser(parse_mbppplus_asserts(mbppplus_test_code_list))
+
         
         # Tokenize and generate completion
         text_prompt = tokenizer.apply_chat_template(get_answerer_prompt(prompt_text), tokenize=False, add_generation_prompt=True)
@@ -83,9 +99,8 @@ def test_model_performance(iter, model_path, testset="humaneval", store_log=Fals
         )
         
         generated_solution = tokenizer.decode(outputs[0][input_len:], skip_special_tokens=True)
-
-        test_code = assert_code_parser(parse_human_eval_asserts(human_eval_test_code))
         solution = solution_code_parser(generated_solution)
+
         # Evaluate solution using DockerSandbox
         score = sandbox.evaluate(solution_code=solution, test_code=test_code, normalized=False)
         
@@ -100,7 +115,7 @@ def test_model_performance(iter, model_path, testset="humaneval", store_log=Fals
         else:
             status = "FAILED"
 
-        # print(f"[{i+1}/{total_problems}] ID: {task_id} -> {status} (Assertions: {int(score)}/{max_possible_assertions})")
+        print(f"[{i+1}/{total_problems}] ID: {task_id} -> {status} (Assertions: {int(score)}/{max_possible_assertions})")
 
         # Store detailed logs for this problem
         if STORE_LOG:

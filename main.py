@@ -22,7 +22,7 @@ MODEL_ID = "Qwen/Qwen2.5-Coder-3B-Instruct"
 LOG_FILE = f"./results/{MODEL_ID}/training_rollouts.jsonl"
 
 LEARN_RATE = 5e-6
-MAX_ITER = 50                      # No. of total loops
+MAX_ITER = 70                      # No. of total loops
 GROUP_SIZE = 4                     # GRPO group size
 
 ANS_ATTEMPTS_PROP_TRAIN = 4        # No. of answerer attempts to calculate proposer difficulty score
