@@ -142,3 +142,44 @@ def f(name: str, info: dict):
         ]
 
     return answerer_messages
+
+
+def get_judge_prompt(problem, assertion):
+    judge_messages = [
+        {
+            "role": "system",
+            "content": (
+                "You are a strict Python test case validator. Determine if the assert statement logically aligns with the described problem." 
+                "Reply with EXACTLY one word: valid or invalid."
+            )
+        },
+        {
+            "role": "user",
+            "content": (
+                "Problem: Write a function that returns True if even, else False."
+                "Assert: solution(4) == True"
+            )
+        },
+        {
+            "role": "assistant",
+            "content": "valid"
+        },
+        {
+            "role": "user",
+            "content": (
+                "Problem: Write a function that returns True if prime, else False."
+                "Assert: solution(4) == True"
+            )
+        },
+        {
+            "role": "assistant",
+            "content": "invalid"
+        },
+        {
+            "role": "user",
+            "content": (
+                f"Problem: {problem}\n"
+                f"Assert: {assertion}"
+            )
+        }
+    ]

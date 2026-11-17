@@ -6,7 +6,7 @@ from datasets import Dataset
 from trl import GRPOTrainer, GRPOConfig
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-from prompts import get_proposer_prompt, get_answerer_prompt
+from prompts import get_proposer_prompt, get_answerer_prompt, get_judge_prompt
 from docker_code import DockerSandbox
 from utils import clean_code_output, parse_proposer_output, validate_assertions, assert_code_parser, solution_code_parser
 
@@ -19,6 +19,10 @@ MODEL_ID = "Qwen/Qwen2.5-Coder-3B-Instruct"
 # MODEL_ID = "stabilityai/stable-code-instruct-3b"
 # MODEL_ID = "meta-llama/Llama-3.2-3B-Instruct"
 
+USE_JUDGE = True
+JUDGE_MODEL_ID = "Qwen/Qwen2.5-Coder-1.5B-Instruct"
+
+DO_LOGGING = True
 LOG_FILE = f"./results/{MODEL_ID}/training_rollouts.jsonl"
 
 LEARN_RATE = 5e-6
@@ -38,6 +42,8 @@ PROP_TEMP_ANS_TRAIN = 0.7          # No. of max tokens for proposer for training
 
 def log_rollout(proposer_completion, answerer_completion, reward, metadata=None, seed_prompt=None):
     """Appends a complete self-play rollout record (Proposer + Answerer) to JSONL."""
+    if not DO_LOGGING:
+        return
     record = {
         # "seed_prompt": seed_prompt,
         "reward": reward,
@@ -47,6 +53,45 @@ def log_rollout(proposer_completion, answerer_completion, reward, metadata=None,
     }
     with open(LOG_FILE, "a", encoding="utf-8") as f:
         f.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+
+def logical_assertion_reward_func(prompts: list[str], completions: list[str], **kwargs) -> list[float]:
+    """
+    GRPO reward function that uses Qwen-2.5-Coder-1.5B-Instruct to judge 
+    whether the generated assert cases logically match the problem.
+    """
+    rewards = []
+    
+    # Pre-tokenize common prefix tokens for fast logprob extraction if desired,
+    # or use standard generation with strict formatting.
+    valid_token_id = judge_tokenizer.encode("valid", add_special_tokens=False)[0]
+    invalid_token_id = judge_tokenizer.encode("invalid", add_special_tokens=False)[0]
+
+    for prompt_text, completion_text in zip(prompts, completions):
+        # Assuming parse_proposer_output is one of your utility imports
+        # parsed = parse_proposer_output(completion_text)
+        # problem, asserts = parsed['problem'], parsed['asserts']
+        
+        # Construct the evaluation prompt for the judge
+        judge_prompt = None
+        inputs = judge_tokenizer(judge_prompt, return_tensors="pt").to(judge_model.device)
+        
+        with torch.no_grad():
+            # Get logits for the very next token
+            outputs = judge_model(**inputs)
+            next_token_logits = outputs.logits[0, -1, :]
+            
+            # Compare logprobs of "valid" vs "invalid" to get a smooth or binary reward
+            valid_logit = next_token_logits[valid_token_id].item()
+            invalid_logit = next_token_logits[invalid_token_id].item()
+            
+        # Give 1.0 if "valid" has higher probability, 0.0 otherwise
+        if valid_logit > invalid_logit:
+            rewards.append(1.0)
+        else:
+            rewards.append(0.0)
+            
+    return rewards
 
 
 # ==========================================
@@ -62,10 +107,14 @@ def main():
     tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
     tokenizer.pad_token = tokenizer.eos_token
 
+    judge_tokenizer = AutoTokenizer.from_pretrained(JUDGE_MODEL_ID)
+
     # Load shared or separate models for Proposer and Answerer
     print("Loading models...")
     proposer_model = AutoModelForCausalLM.from_pretrained(MODEL_ID, dtype=torch.bfloat16, device_map="auto")
     answerer_model = AutoModelForCausalLM.from_pretrained(MODEL_ID, dtype=torch.bfloat16, device_map="auto")
+    judge_model = AutoModelForCausalLM.from_pretrained(JUDGE_MODEL_ID, torch_dtype=torch.bfloat16, device_map="auto")
+    judge_model.eval()
 
     # Common TRL configuration
     proposer_args = GRPOConfig(
@@ -110,6 +159,44 @@ def main():
             param.requires_grad = True
 
 
+        def logical_assertion_reward_func(prompts: list[str], completions: list[str], **kwargs) -> list[float]:
+            rewards = []
+    
+            # 1. Prepare all formatting pairs
+            batch_inputs = []
+            for prompt_text, completion_text in zip(prompts, completions):
+                judge_prompt = get_judge_prompt(prompt_text, completion_text)
+                batch_inputs.append(judge_prompt)
+
+            # 2. Tokenize the entire batch together with padding
+            judge_tokenizer.padding_side = "left"  # Crucial for decoder-only models
+            encoded = judge_tokenizer(
+                batch_inputs, 
+                return_tensors="pt", 
+                padding=True, 
+                truncation=True, 
+                max_length=1024
+            ).to(judge_model.device)
+
+            valid_token_id = judge_tokenizer.encode("valid", add_special_tokens=False)[0]
+            invalid_token_id = judge_tokenizer.encode("invalid", add_special_tokens=False)[0]
+
+            # 3. Run a SINGLE forward pass for the entire batch (massive speedup)
+            with torch.no_grad():
+                outputs = judge_model(**encoded)
+                
+                # Extract logits for the next token across all batch elements (-1 index)
+                next_token_logits = outputs.logits[:, -1, :]
+                
+                valid_logits = next_token_logits[:, valid_token_id]
+                invalid_logits = next_token_logits[:, invalid_token_id]
+                
+                # Compare logprobs element-wise
+                is_valid = valid_logits > invalid_logits
+                rewards = [1.0 if v else 0.0 for v in is_valid.tolist()]
+
+            return rewards
+
         def proposer_reward_func(prompts, completions, **kwargs):
             # Max reward = formatting 0.2 + assertion 0.2 + answerer correctness 0.6 = 1.0
             rewards = []
@@ -150,32 +237,40 @@ def main():
                 # Reward for correct assertion code
                 assert_score = 0.0
                 assert_score += validate_assertions(test_code)
-                
-                # Format requirements built into the answerer prompt
-                text_prompt = tokenizer.apply_chat_template(get_answerer_prompt(prob_desc), tokenize=False, add_generation_prompt=True)
-                inputs = tokenizer(text_prompt, return_tensors="pt").to(proposer_model.device)
-                input_len = inputs["input_ids"].shape[1]
-            
-                scores = []
 
-                with torch.no_grad():
-                        outs = answerer_model.generate(**inputs, max_new_tokens=ANS_TOKENS_PROP_TRAIN,
-                                                      do_sample=True, temperature=ANS_TEMP_PROP_TRAIN,
-                                                      num_return_sequences=4)
-                for out in outs:
-                    generated_tokens = out[input_len:]
+                # Assert judge
+                judge_score = 0.0
+                if assert_score - 1.0 < 0.0005 and USE_JUDGE:
+                    judge_score = logical_assertion_reward_func(prob_desc, test_code)[0]
                 
-                    raw_solution = tokenizer.decode(generated_tokens, skip_special_tokens=True)
-                    solution = clean_code_output(raw_solution)
+                diff_reward = 0.0
+                solution = None
+                if assert_score - 1.0 < 0.0005 and (judge_score - 1.0 < 0.0005 or not USE_JUDGE):
+                    # Format requirements built into the answerer prompt
+                    text_prompt = tokenizer.apply_chat_template(get_answerer_prompt(prob_desc), tokenize=False, add_generation_prompt=True)
+                    inputs = tokenizer(text_prompt, return_tensors="pt").to(proposer_model.device)
+                    input_len = inputs["input_ids"].shape[1]
+                
+                    scores = []
+
+                    with torch.no_grad():
+                            outs = answerer_model.generate(**inputs, max_new_tokens=ANS_TOKENS_PROP_TRAIN,
+                                                        do_sample=True, temperature=ANS_TEMP_PROP_TRAIN,
+                                                        num_return_sequences=4)
+                    for out in outs:
+                        generated_tokens = out[input_len:]
                     
-                    # Reward heuristic: Target problems that are challenging yet solvable (~0.5 pass score)
-                    score = sandbox.evaluate(solution, test_code)
-                    scores.append(score)
+                        raw_solution = tokenizer.decode(generated_tokens, skip_special_tokens=True)
+                        solution = clean_code_output(raw_solution)
+                        
+                        # Reward heuristic: Target problems that are challenging yet solvable (~0.5 pass score)
+                        score = sandbox.evaluate(solution, test_code)
+                        scores.append(score)
 
-                avg_score = sum(scores) / len(scores)
-                diff_reward = 1.0 - abs(avg_score - 0.5) * 2
+                    avg_score = sum(scores) / len(scores)
+                    diff_reward = 1.0 - abs(avg_score - 0.5) * 2
 
-                total_reward = format_score * 0.2 + diff_reward * 0.6 + assert_score * 0.2
+                total_reward = format_score * 0.2 + diff_reward * 0.6 + assert_score * 0.2 + judge_score * 0.3
 
                 # Log results to file
                 log_rollout(
