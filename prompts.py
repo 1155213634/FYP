@@ -183,3 +183,5 @@ def get_judge_prompt(problem, assertion):
             )
         }
     ]
+
+    return judge_messages

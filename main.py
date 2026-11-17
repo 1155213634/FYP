@@ -2,25 +2,26 @@ import json
 import re
 import torch
 import ast
+from pathlib import Path
 from datasets import Dataset
 from trl import GRPOTrainer, GRPOConfig
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from prompts import get_proposer_prompt, get_answerer_prompt, get_judge_prompt
 from docker_code import DockerSandbox
-from utils import clean_code_output, parse_proposer_output, validate_assertions, assert_code_parser, solution_code_parser
+from utils import clean_code_output, parse_proposer_output, validate_assertions, assert_code_parser, solution_code_parser, check_gpu_mem
 
 # ==========================================
 # 0. CONSTANTS
 # ==========================================
 # MODEL_ID = "HuggingFaceTB/SmolLM2-360M-Instruct"
-# MODEL_ID = "Qwen/Qwen2.5-Coder-1.5B-Instruct"
-MODEL_ID = "Qwen/Qwen2.5-Coder-3B-Instruct"
+MODEL_ID = "Qwen/Qwen2.5-Coder-1.5B-Instruct"
+# MODEL_ID = "Qwen/Qwen2.5-Coder-3B-Instruct"
 # MODEL_ID = "stabilityai/stable-code-instruct-3b"
 # MODEL_ID = "meta-llama/Llama-3.2-3B-Instruct"
 
 USE_JUDGE = True
-JUDGE_MODEL_ID = "Qwen/Qwen2.5-Coder-1.5B-Instruct"
+JUDGE_MODEL_ID = "Qwen/Qwen2.5-Coder-3B-Instruct"
 
 DO_LOGGING = True
 LOG_FILE = f"./results/{MODEL_ID}/training_rollouts.jsonl"
@@ -99,6 +100,8 @@ def logical_assertion_reward_func(prompts: list[str], completions: list[str], **
 # ==========================================
 def main():
     # Cleanup log file
+    file_path = Path(LOG_FILE)
+    file_path.parent.mkdir(parents=True, exist_ok=True)
     with open(LOG_FILE, "w", encoding="utf-8") as f:
         pass
 
@@ -107,14 +110,24 @@ def main():
     tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
     tokenizer.pad_token = tokenizer.eos_token
 
-    judge_tokenizer = AutoTokenizer.from_pretrained(JUDGE_MODEL_ID)
+    if USE_JUDGE:
+        judge_tokenizer = AutoTokenizer.from_pretrained(JUDGE_MODEL_ID)
+        VALID_TOKEN_ID = judge_tokenizer.encode("valid", add_special_tokens=False)[0]
+        INVALID_TOKEN_ID = judge_tokenizer.encode("invalid", add_special_tokens=False)[0]
+    else:
+        judge_tokenizer = None
+        VALID_TOKEN_ID = None
+        INVALID_TOKEN_ID = None
 
     # Load shared or separate models for Proposer and Answerer
     print("Loading models...")
     proposer_model = AutoModelForCausalLM.from_pretrained(MODEL_ID, dtype=torch.bfloat16, device_map="auto")
     answerer_model = AutoModelForCausalLM.from_pretrained(MODEL_ID, dtype=torch.bfloat16, device_map="auto")
-    judge_model = AutoModelForCausalLM.from_pretrained(JUDGE_MODEL_ID, torch_dtype=torch.bfloat16, device_map="auto")
-    judge_model.eval()
+    if USE_JUDGE:
+        judge_model = AutoModelForCausalLM.from_pretrained(JUDGE_MODEL_ID, dtype=torch.bfloat16, device_map="auto")
+        judge_model.eval()
+    else:
+        judge_model = None
 
     # Common TRL configuration
     proposer_args = GRPOConfig(
@@ -143,6 +156,7 @@ def main():
         report_to="none"
     )
 
+    check_gpu_mem()
     # --- ALTERNATING SELF-PLAY TRAINING LOOP ---
     for iteration in range(MAX_ITER):
         print(f"\n==============================")
@@ -159,43 +173,19 @@ def main():
             param.requires_grad = True
 
 
-        def logical_assertion_reward_func(prompts: list[str], completions: list[str], **kwargs) -> list[float]:
-            rewards = []
+        def logical_assertion_reward_func(prob_desc, test_code):
+            text_prompt = judge_tokenizer.apply_chat_template(get_judge_prompt(prob_desc, test_code),
+                                                              tokenize=False, add_generation_prompt=True)
+            inputs = judge_tokenizer(text_prompt, return_tensors="pt").to(judge_model.device)
     
-            # 1. Prepare all formatting pairs
-            batch_inputs = []
-            for prompt_text, completion_text in zip(prompts, completions):
-                judge_prompt = get_judge_prompt(prompt_text, completion_text)
-                batch_inputs.append(judge_prompt)
-
-            # 2. Tokenize the entire batch together with padding
-            judge_tokenizer.padding_side = "left"  # Crucial for decoder-only models
-            encoded = judge_tokenizer(
-                batch_inputs, 
-                return_tensors="pt", 
-                padding=True, 
-                truncation=True, 
-                max_length=1024
-            ).to(judge_model.device)
-
-            valid_token_id = judge_tokenizer.encode("valid", add_special_tokens=False)[0]
-            invalid_token_id = judge_tokenizer.encode("invalid", add_special_tokens=False)[0]
-
-            # 3. Run a SINGLE forward pass for the entire batch (massive speedup)
             with torch.no_grad():
-                outputs = judge_model(**encoded)
+                outputs = judge_model(**inputs)
+                next_token_logits = outputs.logits[0, -1, :]
                 
-                # Extract logits for the next token across all batch elements (-1 index)
-                next_token_logits = outputs.logits[:, -1, :]
+                valid_logit = next_token_logits[VALID_TOKEN_ID].item()
+                invalid_logit = next_token_logits[INVALID_TOKEN_ID].item()
                 
-                valid_logits = next_token_logits[:, valid_token_id]
-                invalid_logits = next_token_logits[:, invalid_token_id]
-                
-                # Compare logprobs element-wise
-                is_valid = valid_logits > invalid_logits
-                rewards = [1.0 if v else 0.0 for v in is_valid.tolist()]
-
-            return rewards
+            return 1.0 if valid_logit > invalid_logit else 0.0
 
         def proposer_reward_func(prompts, completions, **kwargs):
             # Max reward = formatting 0.2 + assertion 0.2 + answerer correctness 0.6 = 1.0
@@ -229,7 +219,7 @@ def main():
                     answerer_completion=None,
                     reward=0.0,
                     metadata={"phase": "proposer", "failed": True}
-                )
+                    )
                     continue
 
                 test_code = assert_code_parser(test_code)
@@ -241,7 +231,7 @@ def main():
                 # Assert judge
                 judge_score = 0.0
                 if assert_score - 1.0 < 0.0005 and USE_JUDGE:
-                    judge_score = logical_assertion_reward_func(prob_desc, test_code)[0]
+                    judge_score = logical_assertion_reward_func(prob_desc, test_code)
                 
                 diff_reward = 0.0
                 solution = None
@@ -279,7 +269,7 @@ def main():
                     answerer_completion=solution,
                     reward=round(total_reward, 2),
                     metadata={"phase": "proposer", "format": round(format_score,2), 
-                              "assert": round(assert_score, 2), "ans_avg":round(avg_score,2)}
+                              "assert": round(assert_score, 2), "ans_avg":round(avg_score,2), "judge":round(judge_score,2)}
                 )
 
                 rewards.append(total_reward)

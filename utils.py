@@ -1,5 +1,6 @@
 import re
 import ast
+import torch
 
 def clean_code_output(text: str) -> str:
     """
@@ -97,3 +98,29 @@ def solution_code_parser(text: str) -> str | None:
         )
 
     return code
+
+
+def check_gpu_mem():
+    # Ensure CUDA is available
+    if torch.cuda.is_available():
+        device_id = torch.cuda.current_device()
+        
+        # Get total VRAM on the GPU
+        total_vram = torch.cuda.get_device_properties(device_id).total_memory / (1024**3)
+        
+        # Get VRAM currently allocated by PyTorch tensors (models, activations)
+        allocated_vram = torch.cuda.memory_allocated(device_id) / (1024**3)
+        
+        # Get VRAM managed by PyTorch's caching allocator (reserved but maybe unused)
+        reserved_vram = torch.cuda.memory_reserved(device_id) / (1024**3)
+        
+        # Calculate true free space
+        free_vram = total_vram - reserved_vram
+
+        print(f"--- VRAM Status Report ---")
+        print(f"Total GPU VRAM:       {total_vram:.2f} GB")
+        print(f"Actively Allocated:   {allocated_vram:.2f} GB (Proposer + Answerer weights/tensors)")
+        print(f"Reserved by PyTorch:  {reserved_vram:.2f} GB")
+        print(f"Truly Free VRAM:      {free_vram:.2f} GB")
+    else:
+        print("CUDA is not available. Running on CPU.")
