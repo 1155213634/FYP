@@ -5,7 +5,8 @@ import ast
 from pathlib import Path
 from datasets import Dataset
 from trl import GRPOTrainer, GRPOConfig
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+from peft import LoraConfig
 
 from prompts import get_proposer_prompt, get_answerer_prompt, get_judge_prompt
 from docker_code import DockerSandbox
@@ -21,7 +22,7 @@ MODEL_ID = "Qwen/Qwen2.5-Coder-1.5B-Instruct"
 # MODEL_ID = "meta-llama/Llama-3.2-3B-Instruct"
 
 USE_JUDGE = True
-JUDGE_MODEL_ID = "Qwen/Qwen2.5-Coder-3B-Instruct"
+JUDGE_MODEL_ID = "Qwen/Qwen3.5-4B"
 
 DO_LOGGING = True
 LOG_FILE = f"./results/{MODEL_ID}/training_rollouts.jsonl"
@@ -56,45 +57,6 @@ def log_rollout(proposer_completion, answerer_completion, reward, metadata=None,
         f.write(json.dumps(record, ensure_ascii=False) + "\n")
 
 
-def logical_assertion_reward_func(prompts: list[str], completions: list[str], **kwargs) -> list[float]:
-    """
-    GRPO reward function that uses Qwen-2.5-Coder-1.5B-Instruct to judge 
-    whether the generated assert cases logically match the problem.
-    """
-    rewards = []
-    
-    # Pre-tokenize common prefix tokens for fast logprob extraction if desired,
-    # or use standard generation with strict formatting.
-    valid_token_id = judge_tokenizer.encode("valid", add_special_tokens=False)[0]
-    invalid_token_id = judge_tokenizer.encode("invalid", add_special_tokens=False)[0]
-
-    for prompt_text, completion_text in zip(prompts, completions):
-        # Assuming parse_proposer_output is one of your utility imports
-        # parsed = parse_proposer_output(completion_text)
-        # problem, asserts = parsed['problem'], parsed['asserts']
-        
-        # Construct the evaluation prompt for the judge
-        judge_prompt = None
-        inputs = judge_tokenizer(judge_prompt, return_tensors="pt").to(judge_model.device)
-        
-        with torch.no_grad():
-            # Get logits for the very next token
-            outputs = judge_model(**inputs)
-            next_token_logits = outputs.logits[0, -1, :]
-            
-            # Compare logprobs of "valid" vs "invalid" to get a smooth or binary reward
-            valid_logit = next_token_logits[valid_token_id].item()
-            invalid_logit = next_token_logits[invalid_token_id].item()
-            
-        # Give 1.0 if "valid" has higher probability, 0.0 otherwise
-        if valid_logit > invalid_logit:
-            rewards.append(1.0)
-        else:
-            rewards.append(0.0)
-            
-    return rewards
-
-
 # ==========================================
 # 3. SELF-PLAY TRAINING ORCHESTRATION
 # ==========================================
@@ -124,7 +86,13 @@ def main():
     proposer_model = AutoModelForCausalLM.from_pretrained(MODEL_ID, dtype=torch.bfloat16, device_map="auto")
     answerer_model = AutoModelForCausalLM.from_pretrained(MODEL_ID, dtype=torch.bfloat16, device_map="auto")
     if USE_JUDGE:
-        judge_model = AutoModelForCausalLM.from_pretrained(JUDGE_MODEL_ID, dtype=torch.bfloat16, device_map="auto")
+        quantization_config = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_compute_dtype=torch.bfloat16, # or torch.float16 depending on your GPU
+            bnb_4bit_quant_type="nf4",             # Normalized Float 4 (best for performance)
+            bnb_4bit_use_double_quant=True,        # Nested quantization to save even more memory
+        )
+        judge_model = AutoModelForCausalLM.from_pretrained(JUDGE_MODEL_ID, quantization_config=quantization_config, dtype=torch.bfloat16, device_map="auto")
         judge_model.eval()
     else:
         judge_model = None
