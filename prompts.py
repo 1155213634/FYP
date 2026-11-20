@@ -225,3 +225,84 @@ def get_human_eval_answerer_prompt(problem_prompt: str, entry_point: str):
             ),
         },
     ]
+
+
+def get_codeelo_answerer_prompt(problem_desc):
+    answerer_messages = [
+            {
+                "role": "system", 
+                "content": ( """
+### Task: Create a Python Code Snippet to solve provided problem
+
+### Code Requirements:
+- Name the entry function `f` (e.g., `def f(...): ...`)
+- Ensure the function returns only one string
+- Include only one input parameter
+- Make the function deterministic
+- AVOID THE FOLLOWING:
+  * Random functions or variables
+  * Date/time operations
+  * I/O operations (reading files, network requests)
+  * Printing or logging
+  * Any external state
+  * Doc strings
+- Ensure execution completes within 10 seconds on a modern CPU
+- All imports and class definitions should be at the very top of the code snippet
+- The snippet should end with a return statement from the main function `f(...)`, DO NOT ADD ANYTHING AFTER FINAL RETURN STATEMENT"
+- Add comments using # to support logic flow of code, AVOID chat response style output
+- Do not return prose or example print calls.
+- Function arguments are in the form of strings such as "1 9". Return values should also be strings such as "10 10"
+
+### Formatting:
+- Format your code with:
+  def f(...):
+      # your code here
+      return ...
+  
+### Example Format:
+def f(input:str):
+    # code logic here
+    return result
+
+### Evaluation Criteria:
+- Executability, your code should be executable when given arguments into function f(...)
+- Correctness, your code should be able to solve the given problem
+"""
+                )
+            },
+            {
+            "role": "user",
+            "content": "Write a Python function to solve this problem: string reversal\n"
+            },
+                    {
+            "role": "assistant",
+            "content": (
+                "def f(string):\n"
+                "    s = string[::-1]\n"
+                "    return s"
+            )
+            },
+            {
+            "role": "user",
+            "content": "Write a Python function to solve this problem: array sum\n"
+            },
+            {
+            "role": "assistant",
+            "content": (
+                "def f(input_str):\n"
+                "    array = input_str.split(' ')"
+                "    sum = 0\n"
+                "    for value in array:\n"
+                "        sum += value\n"
+                "    return str(sum)"
+            )
+            },
+            {
+                "role": "user", 
+                "content": (
+                    f"Write a Python function to solve this problem:\n{problem_desc}\n\n"
+                )
+            }
+        ]
+
+    return answerer_messages

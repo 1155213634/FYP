@@ -1,4 +1,5 @@
 from test import test_model_performance
+from test_codeelo import test_model_performance_codeelo
 import traceback
 
 i = 0
@@ -10,7 +11,7 @@ Judged = True
 
 while i <= max_steps:
     try:
-        test_model_performance(i, MODEL_ID, QLoRA, Judged)
+        test_model_performance_codeelo(i, MODEL_ID, QLoRA, Judged)
     except Exception as exc:
         print(f"Iteration {i} failed: {exc}")
         traceback.print_exc()

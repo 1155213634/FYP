@@ -1,6 +1,7 @@
 import re
 import ast
 import torch
+import json
 
 def clean_code_output(text: str) -> str:
     """
@@ -159,3 +160,22 @@ def check_gpu_mem():
         print(f"Truly Free VRAM:      {free_vram:.2f} GB")
     else:
         print("CUDA is not available. Running on CPU.")
+
+
+def get_assert_lines_codeelo(test_cases):
+    def split_lines(text):
+        return text.splitlines()
+
+    inputs = test_cases[0][0]
+    input_text = split_lines(inputs)
+    test_length = int(input_text.pop(0))
+
+    outputs = test_cases[0][1]
+    output_text = split_lines(outputs)
+
+    result = []
+    for i in range(test_length):
+        line = f"assert f('{input_text[i]}') == '{output_text[i]}'"
+        result.append(line)
+    
+    return '\n'.join(result)
