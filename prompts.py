@@ -17,6 +17,11 @@ def get_proposer_prompt(iter):
                 "[PROBLEM] followed by the problem description, and "
                 "[TESTS] followed by a Python code block containing up to 3 assertions "
                 "that call `solution(...)`."
+                """
+### Evaluation Criteria:
+- Executability, your assert statements should be executable
+- Correctness, your assert statements should be correct for the problem proposed"
+"""
             )
         },
         # Few-shot example as an actual conversation turn
@@ -89,6 +94,7 @@ def get_answerer_prompt(problem_desc):
 - All imports and class definitions should be at the very top of the code snippet
 - The snippet should end with a return statement from the main function `f(...)`, DO NOT ADD ANYTHING AFTER FINAL RETURN STATEMENT"
 - Add comments using # to support logic flow of code, AVOID chat response style output
+- Do not return prose or example print calls.
 
 ### Formatting:
 - Format your code with:
@@ -150,30 +156,38 @@ def get_judge_prompt(problem, assertion):
             "role": "system",
             "content": (
                 "You are a strict Python test case validator. Determine if the assert statement logically aligns with the described problem." 
-                "Reply with EXACTLY one word: valid or invalid."
+                "You must always structure your response using exact tags: "
+                "[THINK] followed by the reasoning on validity of assert statements, and "
+                "[JUDGE] followed by a EXACTLY one word: valid or invalid"
             )
         },
         {
             "role": "user",
             "content": (
                 "Problem: Write a function that returns True if even, else False."
-                "Assert: solution(4) == True"
+                "Assert: assert f(4) == True"
             )
         },
         {
             "role": "assistant",
-            "content": "valid"
+            "content": (
+                "[THINK] Each assert statement checks if the function returns True if the input number is even.\n For assert 1, it claims that input number 4 returns True, that means input number 4 is even.\n The statement is valid"
+                "[JUDGE] valid"
+            )
         },
         {
             "role": "user",
             "content": (
                 "Problem: Write a function that returns True if prime, else False."
-                "Assert: solution(4) == True"
+                "Assert: assert f(4) == True"
             )
         },
         {
             "role": "assistant",
-            "content": "invalid"
+            "content": (
+                "[THINK] Each assert statement checks if the function returns True if the input number is prime.\n For assert 1, it claims that input number 4 returns True, that means input number 4 is prime.\n The statement is invalid"
+                "[JUDGE] valid"
+            )
         },
         {
             "role": "user",

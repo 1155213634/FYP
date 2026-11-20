@@ -61,6 +61,7 @@ def validate_assertions(test_code_str):
     return score
 
 def assert_code_parser(code: str) -> str:
+    # for training (know would not allow nested function in asserts)
     assert_not_pattern = r"(?m)^[ \t]*assert not[ \t]+([A-Za-z_]\w*)[ \t]*\("
     assert_pattern = r"(?m)^[ \t]*assert[ \t]+([A-Za-z_]\w*)[ \t]*\("
     asserts = code.split("\n")
@@ -71,7 +72,11 @@ def assert_code_parser(code: str) -> str:
             temp_list.append(re.sub(assert_not_pattern, "assert not f(", assert_statement, flags=flags))
         else:
             temp_list.append(re.sub(assert_pattern, "assert f(", assert_statement, flags=flags))
-    return "\n".join(assert_pattern.strip() for assert_pattern in temp_list)
+    return "\n".join(assert_statement.strip() for assert_statement in temp_list)
+
+def test_assert_code_parser(code: str)-> str:
+    # for testing, to only replace "solution()" function, current work around
+    return re.sub(r"\bsolution(?=\s*\()", "f", code)
 
 def solution_code_parser(text: str) -> str | None:
     match = re.search(
@@ -98,6 +103,15 @@ def solution_code_parser(text: str) -> str | None:
         )
 
     return code
+
+def judge_response_parser(text: str) -> str | None:
+    if "[THINK]" not in text or "[JUDGE]" not in text:
+        return None, None
+
+    parts = text.split("[JUDGE]")
+    thinking = parts[0].replace("[THINK]", "").strip()
+    validate = parts[1].strip()
+    return thinking, validate
 
 
 def check_gpu_mem():

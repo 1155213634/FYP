@@ -6,26 +6,27 @@ from pathlib import Path
 from datasets import Dataset
 from trl import GRPOTrainer, GRPOConfig
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
-from peft import LoraConfig
+from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
 
 from prompts import get_proposer_prompt, get_answerer_prompt, get_judge_prompt
 from docker_code import DockerSandbox
-from utils import clean_code_output, parse_proposer_output, validate_assertions, assert_code_parser, solution_code_parser, check_gpu_mem
+from utils import clean_code_output, parse_proposer_output, validate_assertions, assert_code_parser, solution_code_parser, check_gpu_mem, judge_response_parser
 
 # ==========================================
 # 0. CONSTANTS
 # ==========================================
 # MODEL_ID = "HuggingFaceTB/SmolLM2-360M-Instruct"
-MODEL_ID = "Qwen/Qwen2.5-Coder-1.5B-Instruct"
-# MODEL_ID = "Qwen/Qwen2.5-Coder-3B-Instruct"
+# MODEL_ID = "Qwen/Qwen2.5-Coder-1.5B-Instruct"
+MODEL_ID = "Qwen/Qwen2.5-Coder-3B-Instruct"
+# MODEL_ID = "Qwen/Qwen2.5-Coder-7B-Instruct"
 # MODEL_ID = "stabilityai/stable-code-instruct-3b"
 # MODEL_ID = "meta-llama/Llama-3.2-3B-Instruct"
 
 USE_JUDGE = True
-JUDGE_MODEL_ID = "Qwen/Qwen3.5-4B"
+JUDGE_MODEL_ID = "Qwen/Qwen3-4B-Instruct-2507"
 
 DO_LOGGING = True
-LOG_FILE = f"./results/{MODEL_ID}/training_rollouts.jsonl"
+LOG_FILE = f"./results/{MODEL_ID}/training_rollouts{"_judge" if USE_JUDGE else ''}.jsonl"
 
 LEARN_RATE = 5e-6
 MAX_ITER = 50                      # No. of total loops
@@ -37,6 +38,32 @@ ANS_TEMP_PROP_TRAIN = 0.7          # No. of max tokens for answerer for training
 
 PROP_TOKENS_ANS_TRAIN = 256        # No. of max tokens for proposer for training answerer
 PROP_TEMP_ANS_TRAIN = 0.7          # No. of max tokens for proposer for training answerer
+
+JUDGE_TOKENS = 1024
+
+LOAD_IN_4BIT = True
+LORA_RANK = 16
+LORA_ALPHA = 32
+LORA_DROPOUT = 0.05
+
+quantization_config = BitsAndBytesConfig(
+    load_in_4bit=LOAD_IN_4BIT,
+    bnb_4bit_compute_dtype=torch.bfloat16,
+    bnb_4bit_quant_type="nf4",
+    bnb_4bit_use_double_quant=True,
+)
+
+lora_config = LoraConfig(
+    r=LORA_RANK,
+    lora_alpha=LORA_ALPHA,
+    lora_dropout=LORA_DROPOUT,
+    bias="none",
+    task_type="CAUSAL_LM",
+    target_modules=[
+        "q_proj", "k_proj", "v_proj", "o_proj",
+        "gate_proj", "up_proj", "down_proj",
+    ],
+)
 
 # ==========================================
 # 2. UTILITIES
@@ -56,6 +83,20 @@ def log_rollout(proposer_completion, answerer_completion, reward, metadata=None,
     with open(LOG_FILE, "a", encoding="utf-8") as f:
         f.write(json.dumps(record, ensure_ascii=False) + "\n")
 
+def load_trainable_model():
+    model = AutoModelForCausalLM.from_pretrained(
+        MODEL_ID,
+        quantization_config=quantization_config,
+        dtype=torch.bfloat16,
+        device_map={"": torch.cuda.current_device()},
+    )
+    model = prepare_model_for_kbit_training(
+        model, use_gradient_checkpointing=True
+    )
+    model = get_peft_model(model, lora_config)
+    model.config.use_cache = False
+    model.print_trainable_parameters()
+    return model
 
 # ==========================================
 # 3. SELF-PLAY TRAINING ORCHESTRATION
@@ -72,30 +113,24 @@ def main():
     tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
     tokenizer.pad_token = tokenizer.eos_token
 
-    if USE_JUDGE:
-        judge_tokenizer = AutoTokenizer.from_pretrained(JUDGE_MODEL_ID)
-        VALID_TOKEN_ID = judge_tokenizer.encode("valid", add_special_tokens=False)[0]
-        INVALID_TOKEN_ID = judge_tokenizer.encode("invalid", add_special_tokens=False)[0]
-    else:
-        judge_tokenizer = None
-        VALID_TOKEN_ID = None
-        INVALID_TOKEN_ID = None
-
     # Load shared or separate models for Proposer and Answerer
     print("Loading models...")
-    proposer_model = AutoModelForCausalLM.from_pretrained(MODEL_ID, dtype=torch.bfloat16, device_map="auto")
-    answerer_model = AutoModelForCausalLM.from_pretrained(MODEL_ID, dtype=torch.bfloat16, device_map="auto")
+    proposer_model = load_trainable_model()
+    answerer_model = load_trainable_model()
+    check_gpu_mem()
     if USE_JUDGE:
-        quantization_config = BitsAndBytesConfig(
+        judge_tokenizer = AutoTokenizer.from_pretrained(JUDGE_MODEL_ID)
+        judge_quantization_config = BitsAndBytesConfig(
             load_in_4bit=True,
             bnb_4bit_compute_dtype=torch.bfloat16, # or torch.float16 depending on your GPU
             bnb_4bit_quant_type="nf4",             # Normalized Float 4 (best for performance)
             bnb_4bit_use_double_quant=True,        # Nested quantization to save even more memory
         )
-        judge_model = AutoModelForCausalLM.from_pretrained(JUDGE_MODEL_ID, quantization_config=quantization_config, dtype=torch.bfloat16, device_map="auto")
+        judge_model = AutoModelForCausalLM.from_pretrained(JUDGE_MODEL_ID, quantization_config=judge_quantization_config, dtype=torch.bfloat16, device_map="auto")
         judge_model.eval()
     else:
         judge_model = None
+        judge_tokenizer = None
 
     # Common TRL configuration
     proposer_args = GRPOConfig(
@@ -135,25 +170,39 @@ def main():
         # PHASE 1: Train Proposer (Freeze Answerer)
         # ----------------------------------------------------
         print("\n--- Phase 1: Training Proposer ---")
-        for param in answerer_model.parameters():
-            param.requires_grad = False
-        for param in proposer_model.parameters():
-            param.requires_grad = True
+        if not LOAD_IN_4BIT:
+            for param in answerer_model.parameters():
+                param.requires_grad = False
+            for param in proposer_model.parameters():
+                param.requires_grad = True
 
 
         def logical_assertion_reward_func(prob_desc, test_code):
             text_prompt = judge_tokenizer.apply_chat_template(get_judge_prompt(prob_desc, test_code),
                                                               tokenize=False, add_generation_prompt=True)
-            inputs = judge_tokenizer(text_prompt, return_tensors="pt").to(judge_model.device)
+            inputs = tokenizer(text_prompt, return_tensors="pt").to(judge_model.device)
+            input_len = inputs["input_ids"].shape[1]
     
             with torch.no_grad():
-                outputs = judge_model(**inputs)
-                next_token_logits = outputs.logits[0, -1, :]
+                outputs = judge_model.generate(
+                    **inputs,
+                    max_new_tokens=JUDGE_TOKENS,
+                    do_sample=False,
+                )
+            
+            output_ids = outputs[0][input_len:]
+            raw_output = tokenizer.decode(output_ids, skip_special_tokens=True)
+            thinking, verdict = judge_response_parser(raw_output)
+
+            score = 0.0
+            if verdict is not None:
+                if "invalid" in verdict:
+                    score = -1.0
+                elif "valid" in verdict:
+                    score = 1.0
+
+            return score, thinking, verdict, raw_output
                 
-                valid_logit = next_token_logits[VALID_TOKEN_ID].item()
-                invalid_logit = next_token_logits[INVALID_TOKEN_ID].item()
-                
-            return 1.0 if valid_logit > invalid_logit else 0.0
 
         def proposer_reward_func(prompts, completions, **kwargs):
             # Max reward = formatting 0.2 + assertion 0.2 + answerer correctness 0.6 = 1.0
@@ -198,12 +247,16 @@ def main():
 
                 # Assert judge
                 judge_score = 0.0
-                if assert_score - 1.0 < 0.0005 and USE_JUDGE:
-                    judge_score = logical_assertion_reward_func(prob_desc, test_code)
+                thinking = ""
+                verdict = ""
+                judge_raw_output = ""
+                if assert_score > 0.9 and USE_JUDGE:
+                    judge_score, thinking, verdict, judge_raw_output = logical_assertion_reward_func(prob_desc, test_code)
                 
                 diff_reward = 0.0
                 solution = None
-                if assert_score - 1.0 < 0.0005 and (judge_score - 1.0 < 0.0005 or not USE_JUDGE):
+                avg_score = -1
+                if assert_score > 0.9 and (judge_score > 0.9 or not USE_JUDGE):
                     # Format requirements built into the answerer prompt
                     text_prompt = tokenizer.apply_chat_template(get_answerer_prompt(prob_desc), tokenize=False, add_generation_prompt=True)
                     inputs = tokenizer(text_prompt, return_tensors="pt").to(proposer_model.device)
@@ -228,7 +281,10 @@ def main():
                     avg_score = sum(scores) / len(scores)
                     diff_reward = 1.0 - abs(avg_score - 0.5) * 2
 
-                total_reward = format_score * 0.2 + diff_reward * 0.6 + assert_score * 0.2 + judge_score * 0.3
+                if USE_JUDGE:
+                    total_reward = (format_score * 0.2 + diff_reward * 0.6 + assert_score * 0.2) * 0.7 + judge_score * 0.3
+                else:
+                    total_reward = format_score * 0.2 + diff_reward * 0.6 + assert_score * 0.2
 
                 # Log results to file
                 log_rollout(
@@ -237,7 +293,7 @@ def main():
                     answerer_completion=solution,
                     reward=round(total_reward, 2),
                     metadata={"phase": "proposer", "format": round(format_score,2), 
-                              "assert": round(assert_score, 2), "ans_avg":round(avg_score,2), "judge":round(judge_score,2)}
+                              "assert": round(assert_score, 2), "ans_avg":round(avg_score,2), "judge":round(judge_score,2), "judge_output": (thinking, verdict, judge_raw_output)}
                 )
 
                 rewards.append(total_reward)
@@ -261,10 +317,11 @@ def main():
         # PHASE 2: Train Answerer (Freeze Proposer)
         # ----------------------------------------------------
         print("\n--- Phase 2: Training Answerer ---")
-        for param in proposer_model.parameters():
-            param.requires_grad = False
-        for param in answerer_model.parameters():
-            param.requires_grad = True
+        if not LOAD_IN_4BIT:
+            for param in proposer_model.parameters():
+                param.requires_grad = False
+            for param in answerer_model.parameters():
+                param.requires_grad = True
 
         proposer_model.eval()
 

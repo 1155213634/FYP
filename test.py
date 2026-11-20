@@ -4,13 +4,21 @@ import json
 import re
 import gc
 from datasets import load_dataset
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from peft import AutoPeftModelForCausalLM
+from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 
 from docker_code import DockerSandbox
-from utils import assert_code_parser, solution_code_parser
+from utils import test_assert_code_parser, solution_code_parser
 from prompts import get_answerer_prompt
 
-def test_model_performance(iter, model_path, testset="humaneval", store_log=False):
+def get_candidate_name(prompt_text: str) -> str | None:
+    match = re.search(
+        r"\bdef\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(",
+        prompt_text,
+    )
+    return match.group(1) if match else None
+
+def test_model_performance(iter, model_path, QLoRA, Judged, adapter_path=None, testset="humaneval", store_log=False):
     # ==========================================
     # Configuration Constants
     # ==========================================
@@ -20,13 +28,54 @@ def test_model_performance(iter, model_path, testset="humaneval", store_log=Fals
         MODEL_PATH = model_path
         TOKENIZER_PATH = model_path
     else:
-        MODEL_PATH = f"ready/{PARENT_DIR}/{iter}_answerer_model"
-        TOKENIZER_PATH = f"ready/{PARENT_DIR}/{iter}_tokenizer"
+        if QLoRA:
+            if Judged:
+                MODEL_PATH = f"ready/QLoRA/Judged/{PARENT_DIR}/{iter}_answerer_model"
+                TOKENIZER_PATH = f"ready/QLoRA/Judged/{PARENT_DIR}/{iter}_tokenizer"
+            else:
+                MODEL_PATH = f"ready/QLoRA/NonJudged/{PARENT_DIR}/{iter}_answerer_model"
+                TOKENIZER_PATH = f"ready/QLoRA/NonJudged/{PARENT_DIR}/{iter}_tokenizer"
+        else:
+            MODEL_PATH = f"ready/{PARENT_DIR}/{iter}_answerer_model"
+            TOKENIZER_PATH = f"ready/{PARENT_DIR}/{iter}_tokenizer"
+
+    print("Loading model and tokenizer from local folders...")
+    tokenizer = AutoTokenizer.from_pretrained(
+        TOKENIZER_PATH,
+        trust_remote_code=True,
+    )
+
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+
+    if QLoRA and iter > 0:
+        # Use this when MODEL_PATH contains adapter_config.json.
+        model = AutoPeftModelForCausalLM.from_pretrained(
+            MODEL_PATH,
+            is_trainable=False,
+            torch_dtype=torch.float16,
+            device_map="auto",
+        )
+    else:
+        # Loads full saved/incremental models and the original base model.
+        model = AutoModelForCausalLM.from_pretrained(
+            MODEL_PATH,
+            torch_dtype=torch.float16,
+            device_map="auto",
+            trust_remote_code=True,
+        )
 
     DATASET_NAME = "openai/openai_humaneval"
     DATASET_SPLIT = "test"
 
-    OUTPUT_DIR = f"./results/{model_path}"
+    if QLoRA:
+        if Judged:
+            OUTPUT_DIR = f"./results/QLoRA/Judged/{model_path}"
+        else:
+            OUTPUT_DIR = f"./results/QLoRA/NonJudged/{model_path}"
+    else:
+        OUTPUT_DIR = f"./results/{model_path}"
+
     OUTPUT_FILE = os.path.join(OUTPUT_DIR, f"evaluation_results_{iter}.json")
     STORE_LOG = True
 
@@ -36,16 +85,9 @@ def test_model_performance(iter, model_path, testset="humaneval", store_log=Fals
     # Main Evaluation Execution Pipeline
     # ==========================================
 
-    print("Loading model and tokenizer from local folders...")
-    tokenizer = AutoTokenizer.from_pretrained(TOKENIZER_PATH)
-    model = AutoModelForCausalLM.from_pretrained(
-        MODEL_PATH,
-        dtype=torch.float16,
-        device_map="auto"
-    )
 
-    if tokenizer.pad_token is None:
-        tokenizer.pad_token = tokenizer.eos_token
+    print(MODEL_PATH)
+    model.eval()
 
     # Load the dataset
     print(f"Loading dataset '{DATASET_NAME}' ({DATASET_SPLIT} split)...")
@@ -60,15 +102,15 @@ def test_model_performance(iter, model_path, testset="humaneval", store_log=Fals
 
     print(f"Running generation and sandbox evaluation on {len(dataset)} problems...")
 
-    def parse_human_eval_asserts(str):
-        list_of_asserts = str.split("assert")[1:]
-        return "\n".join("assert " + assert_statement.strip().replace('\n','') for assert_statement in list_of_asserts)
-
-
     # Loop through problems
     for i, problem in enumerate(dataset):
         task_id = problem.get("task_id", f"problem_{i}")
         prompt_text = problem["prompt"]
+        candidate_name = get_candidate_name(prompt_text)
+
+        prompt_text += """
+        Return only the complete Python function definition.
+        """
         human_eval_test_code = problem["test"]
         
         # Tokenize and generate completion
@@ -84,31 +126,32 @@ def test_model_performance(iter, model_path, testset="humaneval", store_log=Fals
         
         generated_solution = tokenizer.decode(outputs[0][input_len:], skip_special_tokens=True)
 
-        test_code = assert_code_parser(parse_human_eval_asserts(human_eval_test_code))
+        test_code = human_eval_test_code
         solution = solution_code_parser(generated_solution)
+
         # Evaluate solution using DockerSandbox
-        score = sandbox.evaluate(solution_code=solution, test_code=test_code, normalized=False)
-        
-        # Calculate how many assertions exist in this problem
-        valid_assertions = [line for line in test_code.split("\n") if line.strip()]
-        max_possible_assertions = len(valid_assertions)
+        passed, total = sandbox.evaluate_humaneval(
+            solution,
+            human_eval_test_code,
+            candidate_name_hint=candidate_name,
+        )
         
         # Must satisfy ALL assertions to be considered a success
-        if max_possible_assertions > 0 and score >= max_possible_assertions:
+        if total > 0 and passed == total:
             passed_problems += 1
             status = "PASSED"
         else:
             status = "FAILED"
 
-        # print(f"[{i+1}/{total_problems}] ID: {task_id} -> {status} (Assertions: {int(score)}/{max_possible_assertions})")
+        # print(f"[{i+1}/{total_problems}] ID: {task_id} -> {status} (Assertions: {int(passed)}/{total})")
 
         # Store detailed logs for this problem
         if STORE_LOG:
             evaluation_logs.append({
                 "task_id": task_id,
                 "status": status,
-                "score": score,
-                "max_score": max_possible_assertions,
+                "score": passed,
+                "max_score": total,
                 "prompt": prompt_text,
                 "generated_code": generated_solution,
                 "test_code": test_code
