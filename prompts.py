@@ -199,3 +199,29 @@ def get_judge_prompt(problem, assertion):
     ]
 
     return judge_messages
+
+
+def get_human_eval_answerer_prompt(problem_prompt: str, entry_point: str):
+    return [
+        {
+            "role": "system",
+            "content": (
+                "You solve HumanEval programming problems. "
+                "Return only complete, valid Python source code—no Markdown fences "
+                "or explanatory prose. Include a standalone top-level function "
+                "definition using the required function name. Preserve the provided "
+                "signature when one is present. Helper functions and necessary "
+                "imports are allowed."
+            ),
+        },
+        {
+            "role": "user",
+            "content": (
+                f"Implement the HumanEval problem below.\n"
+                f"The required entry-point function name is `{entry_point}`.\n"
+                "The output will be evaluated as standalone source code, so include "
+                "the complete function definition.\n\n"
+                f"{problem_prompt}"
+            ),
+        },
+    ]

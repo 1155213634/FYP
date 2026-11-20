@@ -34,7 +34,7 @@ class _AssertionCounter(ast.NodeTransformer):
         ]
 
 class DockerSandbox:
-    def __init__(self, image_name: str = "python:3.10-slim", timeout_seconds: int = 3):
+    def __init__(self, image_name: str = "python:3.10-slim", timeout_seconds: int = 6):
         self.client = docker.from_env()
         self.image_name = image_name
         self.timeout = timeout_seconds
@@ -115,6 +115,7 @@ except AssertionError:
         solution_code: str,
         test_code: str,
         candidate_name_hint: str | None = None,
+        problem_prompt: str = "",
     ) -> tuple[int, int]:
         try:
             test_tree = ast.parse(test_code)
@@ -165,6 +166,7 @@ except AssertionError:
         test_runner = "" if has_check_invocation else f"\ncheck({entry_point})\n"
         full_script = (
             "__assert_counts = [0, 0]\n"
+            f"{problem_prompt}\n"
             f"{solution_code}\n"
             f"{ast.unparse(test_tree)}\n"
             f"{test_runner}"

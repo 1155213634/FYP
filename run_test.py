@@ -1,4 +1,5 @@
 from test import test_model_performance
+import traceback
 
 i = 0
 max_steps = 50
@@ -8,5 +9,10 @@ QLoRA = True
 Judged = True
 
 while i <= max_steps:
-    test_model_performance(i, MODEL_ID, QLoRA, Judged)
-    i += step_size
+    try:
+        test_model_performance(i, MODEL_ID, QLoRA, Judged)
+    except Exception as exc:
+        print(f"Iteration {i} failed: {exc}")
+        traceback.print_exc()
+    finally:
+        i += step_size

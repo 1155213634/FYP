@@ -74,10 +74,6 @@ def assert_code_parser(code: str) -> str:
             temp_list.append(re.sub(assert_pattern, "assert f(", assert_statement, flags=flags))
     return "\n".join(assert_statement.strip() for assert_statement in temp_list)
 
-def test_assert_code_parser(code: str)-> str:
-    # for testing, to only replace "solution()" function, current work around
-    return re.sub(r"\bsolution(?=\s*\()", "f", code)
-
 def solution_code_parser(text: str) -> str | None:
     match = re.search(
         r"```(?:python[ \t]*)?\s*(.*?)```",
@@ -112,6 +108,31 @@ def judge_response_parser(text: str) -> str | None:
     thinking = parts[0].replace("[THINK]", "").strip()
     validate = parts[1].strip()
     return thinking, validate
+
+def human_eval_solution_parser(text: str, entry_point: str) -> str:
+    match = re.search(
+        r"```(?:python|py)?[ \t]*\r?\n(.*?)```",
+        text,
+        re.DOTALL | re.IGNORECASE,
+    )
+    code = match.group(1).strip() if match else text.strip()
+
+    try:
+        tree = ast.parse(code)
+    except SyntaxError as exc:
+        raise ValueError(f"Generated solution is invalid Python: {exc}") from exc
+
+    functions = {
+        node.name
+        for node in tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+    if entry_point not in functions:
+        raise ValueError(
+            f"Generated solution does not define required entry point {entry_point!r}"
+        )
+
+    return code
 
 
 def check_gpu_mem():

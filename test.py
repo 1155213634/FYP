@@ -1,22 +1,14 @@
 import os
 import torch
 import json
-import re
 import gc
 from datasets import load_dataset
 from peft import AutoPeftModelForCausalLM
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 
 from docker_code import DockerSandbox
-from utils import test_assert_code_parser, solution_code_parser
-from prompts import get_answerer_prompt
-
-def get_candidate_name(prompt_text: str) -> str | None:
-    match = re.search(
-        r"\bdef\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(",
-        prompt_text,
-    )
-    return match.group(1) if match else None
+from utils import solution_code_parser, human_eval_solution_parser
+from prompts import get_human_eval_answerer_prompt
 
 def test_model_performance(iter, model_path, QLoRA, Judged, adapter_path=None, testset="humaneval", store_log=False):
     # ==========================================
@@ -94,7 +86,7 @@ def test_model_performance(iter, model_path, QLoRA, Judged, adapter_path=None, t
     dataset = load_dataset(DATASET_NAME)[DATASET_SPLIT]
 
     # Initialize your Docker sandbox from docker_box.py
-    sandbox = DockerSandbox(image_name="python:3.10-slim", timeout_seconds=3)
+    sandbox = DockerSandbox(image_name="python:3.10-slim", timeout_seconds=10)
 
     passed_problems = 0
     total_problems = len(dataset)
@@ -106,34 +98,32 @@ def test_model_performance(iter, model_path, QLoRA, Judged, adapter_path=None, t
     for i, problem in enumerate(dataset):
         task_id = problem.get("task_id", f"problem_{i}")
         prompt_text = problem["prompt"]
-        candidate_name = get_candidate_name(prompt_text)
-
-        prompt_text += """
-        Return only the complete Python function definition.
-        """
         human_eval_test_code = problem["test"]
-        
-        # Tokenize and generate completion
-        text_prompt = tokenizer.apply_chat_template(get_answerer_prompt(prompt_text), tokenize=False, add_generation_prompt=True)
+
+        entry_point = problem["entry_point"]
+        messages = get_human_eval_answerer_prompt(prompt_text, entry_point)
+
+        text_prompt = tokenizer.apply_chat_template(
+            messages, tokenize=False, add_generation_prompt=True
+        )
         inputs = tokenizer(text_prompt, return_tensors="pt").to(model.device)
         input_len = inputs["input_ids"].shape[1]
         outputs = model.generate(
             **inputs,
-            max_new_tokens=256,
+            max_new_tokens=512,
             do_sample=False,
-            pad_token_id=tokenizer.pad_token_id
+            pad_token_id=tokenizer.pad_token_id,
         )
-        
-        generated_solution = tokenizer.decode(outputs[0][input_len:], skip_special_tokens=True)
+        generated_solution = tokenizer.decode(
+            outputs[0][input_len:], skip_special_tokens=True
+        )
 
-        test_code = human_eval_test_code
-        solution = solution_code_parser(generated_solution)
-
-        # Evaluate solution using DockerSandbox
+        solution = human_eval_solution_parser(generated_solution, entry_point)
         passed, total = sandbox.evaluate_humaneval(
             solution,
             human_eval_test_code,
-            candidate_name_hint=candidate_name,
+            candidate_name_hint=entry_point,
+            problem_prompt=prompt_text,
         )
         
         # Must satisfy ALL assertions to be considered a success
@@ -154,7 +144,7 @@ def test_model_performance(iter, model_path, QLoRA, Judged, adapter_path=None, t
                 "max_score": total,
                 "prompt": prompt_text,
                 "generated_code": generated_solution,
-                "test_code": test_code
+                "test_code": human_eval_test_code
             })
         else:
             evaluation_logs = None
