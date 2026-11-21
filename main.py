@@ -27,6 +27,7 @@ USE_JUDGE = False
 JUDGE_MODEL_ID = "Qwen/Qwen3-4B-Instruct-2507"
 
 DO_LOGGING = True
+LOG_PERIOD = 10
 LOG_FILE = f"./results/{MODEL_ID}/training_rollouts{"_judge" if USE_JUDGE else ''}.jsonl"
 
 LEARN_RATE = 5e-6
@@ -239,14 +240,15 @@ def main():
             # Reject malformed outputs by returning 0.0 reward
             if prob_desc is None or test_code is None:
                 rewards.append(0.0)
-
-                log_rollout(
-                seed_prompt=None,
-                proposer_completion=None,
-                answerer_completion=None,
-                reward=0.0,
-                metadata={"phase": "proposer", "failed": True}
-                )
+                
+                if i % LOG_PERIOD == 0: 
+                    log_rollout(
+                    seed_prompt=None,
+                    proposer_completion=None,
+                    answerer_completion=None,
+                    reward=0.0,
+                    metadata={"phase": "proposer", "failed": True}
+                    )
                 continue
 
             # Reward for correct assertion code
@@ -308,14 +310,15 @@ def main():
                 total_reward = format_score * 0.2 + diff_reward * 0.6 + assert_score * 0.2
 
             # Log results to file
-            log_rollout(
-                seed_prompt=prompt,
-                proposer_completion=comp_text,
-                answerer_completion=solution,
-                reward=round(total_reward, 2),
-                metadata={"phase": "proposer", "format": round(format_score,2), 
-                            "assert": round(assert_score, 2), "ans_avg":round(avg_score,2), "judge":round(judge_score,2), "judge_output": (thinking, verdict, judge_raw_output)}
-            )
+            if i % LOG_PERIOD == 0: 
+                log_rollout(
+                    seed_prompt=prompt,
+                    proposer_completion=comp_text,
+                    answerer_completion=solution,
+                    reward=round(total_reward, 2),
+                    metadata={"phase": "proposer", "format": round(format_score,2), 
+                                "assert": round(assert_score, 2), "ans_avg":round(avg_score,2), "judge":round(judge_score,2), "judge_output": (thinking, verdict, judge_raw_output)}
+                )
 
             rewards.append(total_reward)
         return rewards
@@ -341,12 +344,13 @@ def main():
                 score = 0.0
 
             # Log results
-            log_rollout(
-                proposer_completion=generated_q,
-                answerer_completion=solution,
-                reward=score,
-                metadata={"iteration" : iteration, "phase": "answerer", "problem_description": prob_desc, "test_code": test_code, "raw_sol_text": raw_sol_text}
-            )
+            if i % LOG_PERIOD == 0: 
+                log_rollout(
+                    proposer_completion=generated_q,
+                    answerer_completion=solution,
+                    reward=score,
+                    metadata={"iteration" : iteration, "phase": "answerer", "problem_description": prob_desc, "test_code": test_code, "raw_sol_text": raw_sol_text}
+                )
 
             rewards.append(score)
         return rewards
