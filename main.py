@@ -10,7 +10,8 @@ from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
 
 from prompts import get_proposer_prompt, get_answerer_prompt, get_judge_prompt
 from docker_code import DockerSandbox
-from utils import clean_code_output, parse_proposer_output, validate_assertions, assert_code_parser, solution_code_parser, check_gpu_mem, judge_response_parser
+from utils import clean_code_output, parse_proposer_output, validate_assertions, assert_code_parser, solution_code_parser
+from utils import check_gpu_mem, judge_response_parser, assertions_to_solution, ensure_solution_function
 
 # ==========================================
 # 0. CONSTANTS
@@ -25,7 +26,7 @@ MODEL_ID = "Qwen/Qwen2.5-Coder-1.5B-Instruct"
 USE_JUDGE = False
 JUDGE_MODEL_ID = "Qwen/Qwen3-4B-Instruct-2507"
 
-DO_LOGGING = False
+DO_LOGGING = True
 LOG_FILE = f"./results/{MODEL_ID}/training_rollouts{"_judge" if USE_JUDGE else ''}.jsonl"
 
 LEARN_RATE = 5e-6
@@ -248,10 +249,13 @@ def main():
                 )
                 continue
 
-            test_code = assert_code_parser(test_code)
-
             # Reward for correct assertion code
             assert_score = 0.0
+            try:
+                test_code = assertions_to_solution(test_code)
+            except Exception as exc:
+                assert_score = -1.0
+
             assert_score += validate_assertions(test_code)
 
             # Assert judge
@@ -282,9 +286,17 @@ def main():
                 
                     raw_solution = tokenizer.decode(generated_tokens, skip_special_tokens=True)
                     solution = clean_code_output(raw_solution)
+
+                    can_compile = True
+                    try:
+                        solution = ensure_solution_function(solution)
+                    except Exception as exc:
+                        can_compile = False
                     
                     # Reward heuristic: Target problems that are challenging yet solvable (~0.5 pass score)
-                    score = sandbox.evaluate(solution, test_code)
+                    score = 0.0
+                    if can_compile:
+                        score = sandbox.evaluate(solution, test_code)
                     scores.append(score)
 
                 avg_score = sum(scores) / len(scores)
@@ -315,9 +327,18 @@ def main():
         rewards = []
         for prompt, completion in zip(prompts, completions):
             raw_sol_text = completion[0]["content"] if isinstance(completion, list) else completion
-            solution = solution_code_parser(raw_sol_text)
+
+            solution = ""
+            can_compile = True
+            try:
+                solution = ensure_solution_function(raw_sol_text)
+            except Exception as exc:
+                can_compile = False
             
-            score = sandbox.evaluate(solution, test_code)
+            if can_compile:
+                score = sandbox.evaluate(solution, test_code)
+            else:
+                score = 0.0
 
             # Log results
             log_rollout(
@@ -402,7 +423,11 @@ def main():
             prob_desc, test_code = parse_proposer_output(generated_q)
             if prob_desc is None or test_code is None:
                 continue
-            test_code = assert_code_parser(test_code)
+            try:
+                test_code = assertions_to_solution(test_code)
+            except Exception as exc:
+                pass
+
             if validate_assertions(test_code) <= 0:
                 prob_desc, test_code = None, None
             if prob_desc is not None and test_code is not None:

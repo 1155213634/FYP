@@ -21,7 +21,7 @@ class KeywordToPositional(ast.NodeTransformer):
     self.generic_visit(node)
 
     if isinstance(node.func, ast.Name) and node.func.id == "candidate":
-      node.func.id = "f"
+      node.func.id = "solution"
 
     for kw in node.keywords:
       if kw.arg is not None:
@@ -145,7 +145,7 @@ def test_model_performance_LeetCodeDataset(iter, model_path, QLoRA, Judged, adap
             outputs[0][input_len:], skip_special_tokens=True
         )
 
-        solution = solution_code_parser(generated_solution)
+        solution = ensure_solution_function(generated_solution)
 
         # Evaluate using sandbox
         LeetCodeDataset_test_code = ast.unparse(modified_tree)
