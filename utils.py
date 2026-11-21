@@ -180,3 +180,23 @@ def get_assert_lines_codeelo(test_cases):
         result.append(line)
     
     return '\n'.join(result)
+
+
+def get_assert_lines_LeetCodeDataset(test_cases):
+    def split_lines(text):
+        return text.splitlines()
+
+    inputs = test_cases[0][0]
+    input_text = split_lines(inputs)
+    print(input_text)
+    test_length = int(input_text.pop(0))
+
+    outputs = test_cases[0][1]
+    output_text = split_lines(outputs)
+
+    result = []
+    for i in range(test_length):
+        line = f"assert f('{input_text[i]}') == '{output_text[i]}'"
+        result.append(line)
+    
+    return '\n'.join(result)
