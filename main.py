@@ -2,6 +2,7 @@ import json
 import re
 import torch
 import ast
+import random
 from pathlib import Path
 from datasets import Dataset
 from trl import GRPOTrainer, GRPOConfig
@@ -12,6 +13,14 @@ from prompts import get_proposer_prompt, get_answerer_prompt, get_judge_prompt
 from docker_code import DockerSandbox
 from utils import clean_code_output, parse_proposer_output, validate_assertions, assert_code_parser, solution_code_parser
 from utils import check_gpu_mem, judge_response_parser, assertions_to_solution, ensure_solution_function
+
+import warnings
+
+warnings.filterwarnings(
+    "ignore",
+    message=r".*(gradient_checkpointing_enable|gradient_checkpointing_disable|is_gradient_checkpointing).*",
+    category=FutureWarning,
+)
 
 # ==========================================
 # 0. CONSTANTS
@@ -27,11 +36,11 @@ USE_JUDGE = False
 JUDGE_MODEL_ID = "Qwen/Qwen3-4B-Instruct-2507"
 
 DO_LOGGING = True
-LOG_PERIOD = 10
+LOG_PERIOD = 5
 LOG_FILE = f"./results/{MODEL_ID}/training_rollouts{"_judge" if USE_JUDGE else ''}.jsonl"
 
 LEARN_RATE = 5e-6
-MAX_ITER = 50                      # No. of total loops
+MAX_ITER = 100                      # No. of total loops
 GROUP_SIZE = 4                     # GRPO group size
 
 ANS_ATTEMPTS_PROP_TRAIN = 4        # No. of answerer attempts to calculate proposer difficulty score
@@ -47,6 +56,11 @@ QUANTIZATION = False
 LORA_RANK = 16
 LORA_ALPHA = 32
 LORA_DROPOUT = 0.05
+
+# Not constant but i need it global as a crutch
+proposer_good_probs = [("Write a Python function to solve this problem: array sum\n",
+                        "assert solution([1, 2, 3]) == 6\nassert solution([1]) == 1\nassert solution([]) == 0")
+                        for i in range(4)]    
 
 quantization_config = BitsAndBytesConfig(
     load_in_4bit=True,
@@ -149,10 +163,12 @@ def main():
     # Common TRL configuration
     proposer_args = GRPOConfig(
         output_dir="grpo_proposer_output",
+        save_strategy="no",
         learning_rate=LEARN_RATE,
         per_device_train_batch_size=1,
         gradient_accumulation_steps=4,
         num_generations=GROUP_SIZE,          # Group size (G) for GRPO
+        num_train_epochs=1,
         max_completion_length=256,
         temperature=0.8,            # Temperature for completions
         repetition_penalty=1.15,    # Additional penalty for repeating
@@ -169,10 +185,12 @@ def main():
 
     answerer_args = GRPOConfig(
         output_dir="grpo_answerer_output",
+        save_strategy="no",
         learning_rate=LEARN_RATE,
         per_device_train_batch_size=1,
         gradient_accumulation_steps=4,
         num_generations=GROUP_SIZE,          # Group size (G) for GRPO
+        num_train_epochs=1,
         max_completion_length=256,
         temperature=1.0,
         logging_steps=5,
@@ -241,7 +259,7 @@ def main():
             if prob_desc is None or test_code is None:
                 rewards.append(0.0)
                 
-                if i % LOG_PERIOD == 0: 
+                if iteration % LOG_PERIOD == 0: 
                     log_rollout(
                     seed_prompt=None,
                     proposer_completion=None,
@@ -304,13 +322,18 @@ def main():
                 avg_score = sum(scores) / len(scores)
                 diff_reward = 1.0 - abs(avg_score - 0.5) * 2
 
+            if 0.3 <= avg_score <= 0.7:
+                proposer_good_probs.append((prob_desc, test_code))
+                if len(proposer_good_probs) > 4:
+                    del proposer_good_probs[:-4]
+
             if USE_JUDGE:
                 total_reward = format_score * 0.05 + assert_score * 0.05 + judge_score * 0.3 + diff_reward * 0.6  
             else:
                 total_reward = format_score * 0.2 + diff_reward * 0.6 + assert_score * 0.2
 
             # Log results to file
-            if i % LOG_PERIOD == 0: 
+            if iteration % LOG_PERIOD == 0: 
                 log_rollout(
                     seed_prompt=prompt,
                     proposer_completion=comp_text,
@@ -324,17 +347,17 @@ def main():
         return rewards
 
 
-    def answerer_reward_func(prompts, completions, **kwargs):
-        assert test_code is not None
+    def answerer_reward_func(prompts, completions, test_codes="assert False", prob_descs=None, **kwargs):
+        assert test_codes is not None
 
         rewards = []
-        for prompt, completion in zip(prompts, completions):
+        for prompt, completion, test_code, prob_desc in zip(prompts, completions, test_codes, prob_descs):
             raw_sol_text = completion[0]["content"] if isinstance(completion, list) else completion
 
             solution = ""
             can_compile = True
             try:
-                solution = ensure_solution_function(raw_sol_text)
+                solution = ensure_solution_function(clean_code_output(raw_sol_text))
             except Exception as exc:
                 can_compile = False
             
@@ -344,9 +367,9 @@ def main():
                 score = 0.0
 
             # Log results
-            if i % LOG_PERIOD == 0: 
+            if iteration % LOG_PERIOD == 0: 
                 log_rollout(
-                    proposer_completion=generated_q,
+                    proposer_completion=None,
                     answerer_completion=solution,
                     reward=score,
                     metadata={"iteration" : iteration, "phase": "answerer", "problem_description": prob_desc, "test_code": test_code, "raw_sol_text": raw_sol_text}
@@ -387,11 +410,18 @@ def main():
                 if param.is_floating_point() or param.is_complex():
                     param.requires_grad = True
             
-        proposer_prompt = tokenizer.apply_chat_template(
-            get_proposer_prompt(iteration), tokenize=False, add_generation_prompt=True
-        )
+        rand_ints = [random.randint(0, 1000) for _ in range(4)]
 
-        proposer_trainer.train_dataset = Dataset.from_dict({"prompt": [proposer_prompt]})
+        proposer_prompts = [
+            tokenizer.apply_chat_template(
+                get_proposer_prompt(val),
+                tokenize=False,
+                add_generation_prompt=True,
+            )
+            for val in rand_ints
+        ]
+
+        proposer_trainer.train_dataset = Dataset.from_dict({"prompt": proposer_prompts})
         proposer_trainer.train()
 
         # ----------------------------------------------------
@@ -407,51 +437,31 @@ def main():
 
         proposer_model.eval()
 
-        prob_desc, test_code = None, None
-        max_retries = 3
+        if len(proposer_good_probs) == 4:
+            answerer_prompts = []
+            test_codes = []
+            prob_descs = []
 
-        for attempt in range(max_retries):
-            text_prompt = tokenizer.apply_chat_template(get_proposer_prompt(iteration), tokenize=False, add_generation_prompt=True)
-            inputs = tokenizer(text_prompt, return_tensors="pt").to(proposer_model.device)
+            for prob_desc, test_code in proposer_good_probs:
+                formatted_prompt = tokenizer.apply_chat_template(
+                    get_answerer_prompt(prob_desc),
+                    tokenize=False,
+                    add_generation_prompt=True,
+                )
+                answerer_prompts.append(formatted_prompt)
+                test_codes.append(test_code)
+                prob_descs.append(prob_desc)
 
-            input_len = inputs["input_ids"].shape[1]
-            
-            with torch.no_grad():
-                out = proposer_model.generate(**inputs, max_new_tokens=PROP_TOKENS_ANS_TRAIN,
-                                              do_sample=True, temperature=PROP_TEMP_ANS_TRAIN)
-
-            generated_tokens = out[0][input_len:]
-            
-            generated_q = tokenizer.decode(generated_tokens, skip_special_tokens=True)
-            
-            prob_desc, test_code = parse_proposer_output(generated_q)
-            if prob_desc is None or test_code is None:
-                continue
-            try:
-                test_code = assertions_to_solution(test_code)
-            except Exception as exc:
-                pass
-
-            if validate_assertions(test_code) <= 0:
-                prob_desc, test_code = None, None
-            if prob_desc is not None and test_code is not None:
-                break
-            print(f"Attempt {attempt + 1}: Proposer generated malformed output. Retrying generation...")
-
-
-        if prob_desc is None or test_code is None:
-            print("Error: Proposer failed to follow format after multiple retries. Skipping this iteration's Answerer training.")
-            continue
-
-        answerer_prompt = tokenizer.apply_chat_template(
-            get_answerer_prompt(prob_desc), tokenize=False, add_generation_prompt=True
-        )
-
-        answerer_trainer.train_dataset = Dataset.from_dict({"prompt": [answerer_prompt]})
-        answerer_trainer.train()
+            answerer_data = {
+                "prompt": answerer_prompts,
+                "test_codes": test_codes,
+                "prob_descs": prob_descs
+            }
+            answerer_trainer.train_dataset = Dataset.from_dict(answerer_data)
+            answerer_trainer.train()
 
         # Saving
-        if (iteration+1) % 10 == 0:
+        if (iteration+1) % 20 == 0:
             print("Saving final models to disk...")
             proposer_model.save_pretrained(f"./trained/{MODEL_ID}/{iteration+1}_proposer_model")
             answerer_model.save_pretrained(f"./trained/{MODEL_ID}/{iteration+1}_answerer_model")

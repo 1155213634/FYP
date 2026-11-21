@@ -7,12 +7,22 @@ import builtins
 def clean_code_output(text: str) -> str:
     """
     Extracts pure Python code if enclosed in markdown code blocks,
-    otherwise returns the stripped raw text.
+    and strips stray leading/trailing fences when prompts pre-open a block.
     """
-    pattern = r"```(?:python)?\n(.*?)\n```"
-    matches = re.findall(pattern, text, re.DOTALL)
+    text = text.strip()
+    
+    # 1. Complete fenced block(s): ```python ... ```
+    pattern = r"```(?:python)?\s*\n(.*?)\n```"
+    matches = re.findall(pattern, text, re.DOTALL | re.IGNORECASE)
     if matches:
         return "\n".join(match.strip() for match in matches)
+    
+    # 2. Stray opening fence (e.g., prompt didn't open it, model didn't close it)
+    text = re.sub(r"^```(?:python)?\s*\n?", "", text, flags=re.IGNORECASE)
+    
+    # 3. Stray closing fence (e.g., prompt ended with ```python, model ended with ```)
+    text = re.sub(r"\n?```\s*$", "", text)
+    
     return text.strip()
 
 def parse_proposer_output(proposer_text: str):
