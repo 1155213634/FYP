@@ -117,7 +117,8 @@ def test_model_performance_LeetCodeDataset(iter, model_path, QLoRA, Judged, adap
 
     # Loop through problems
     for i, problem in enumerate(dataset):
-        print(f"Now Performing Test No.{i}\nAccuracy = {passed_problems/total_problems*100}%")
+        if (i+1) % 10 == 0 :
+            print(f"Now Performing Test No.{i}\nAccuracy = {passed_problems/total_problems*100}%")
         # Adjust field lookups according to LeetCodeDataset's data columns schema
         task_id = problem.get("task_id")
         prompt_text = problem.get("problem_description")
@@ -170,8 +171,8 @@ def test_model_performance_LeetCodeDataset(iter, model_path, QLoRA, Judged, adap
         else:
             evaluation_logs = None
 
-        if i == 9:
-            break
+        # if i == 9:
+        #     break
 
     # Calculate final pass rate percentage
     pass_rate = (passed_problems / total_problems) * 100 if total_problems > 0 else 0

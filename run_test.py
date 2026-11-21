@@ -1,18 +1,19 @@
 from test_humanevalplus import test_model_performance_humanevalplus
-from test_codeelo import test_model_performance_codeelo
+# from test_codeelo import test_model_performance_codeelo
 from test_leetcode import test_model_performance_LeetCodeDataset
+from test_mbppplus import test_model_performance_mbppplus
 import traceback
 
-i = 50
-max_steps = 50
-step_size = 10
+i = 0
+max_steps = 70
+step_size = 70
 MODEL_ID = "Qwen/Qwen2.5-Coder-3B-Instruct"
-QLoRA = True
-Judged = True
+QLoRA = False
+Judged = False
 
 while i <= max_steps:
     try:
-        test_model_performance_humanevalplus(i, MODEL_ID, QLoRA, Judged)
+        test_model_performance_mbppplus(i, MODEL_ID, QLoRA, Judged)
     except Exception as exc:
         print(f"Iteration {i} failed: {exc}")
         traceback.print_exc()

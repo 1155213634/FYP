@@ -84,7 +84,7 @@ def get_answerer_prompt(problem_desc):
 ### Task: Create a Python Code Snippet to solve provided problem
 
 ### Code Requirements:
-- Name the entry function `f` (e.g., `def f(...): ...`)
+- Name the entry function `solution` (e.g., `def solution(...): ...`)
 - Ensure the function returns a value
 - Include at least one input parameter
 - Make the function deterministic
@@ -97,23 +97,23 @@ def get_answerer_prompt(problem_desc):
   * Doc strings
 - Ensure execution completes within 10 seconds on a modern CPU
 - All imports and class definitions should be at the very top of the code snippet
-- The snippet should end with a return statement from the main function `f(...)`, DO NOT ADD ANYTHING AFTER FINAL RETURN STATEMENT"
+- The snippet should end with a return statement from the main function `solution(...)`, DO NOT ADD ANYTHING AFTER FINAL RETURN STATEMENT"
 - Add comments using # to support logic flow of code, AVOID chat response style output
 - Do not return prose or example print calls.
 
 ### Formatting:
 - Format your code with:
-  def f(...):
+  def solution(...):
       # your code here
       return ...
   
 ### Example Format:
-def f(name: str, info: dict):
+def solution(name: str, info: dict):
     # code logic here
     return result
 
 ### Evaluation Criteria:
-- Executability, your code should be executable when given arguments into function f(...)
+- Executability, your code should be executable when given arguments into function solution(...)
 - Correctness, your code should be able to solve the given problem
 """
                 )
@@ -125,7 +125,7 @@ def f(name: str, info: dict):
                     {
             "role": "assistant",
             "content": (
-                "def f(string):\n"
+                "def solution(string):\n"
                 "    s = string[::-1]\n"
                 "    return s"
             )
@@ -137,7 +137,7 @@ def f(name: str, info: dict):
             {
             "role": "assistant",
             "content": (
-                "def f(array):\n"
+                "def solution(array):\n"
                 "    sum = 0\n"
                 "    for value in array:\n"
                 "        sum += value\n"
@@ -211,7 +211,6 @@ def get_human_eval_answerer_prompt(problem_prompt: str, entry_point: str):
         {
             "role": "system",
             "content": (
-                "You solve HumanEval programming problems. "
                 "Return only complete, valid Python source code—no Markdown fences "
                 "or explanatory prose. Include a standalone top-level function "
                 "definition using the required function name. Preserve the provided "

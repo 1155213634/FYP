@@ -291,7 +291,7 @@ def main():
                 diff_reward = 1.0 - abs(avg_score - 0.5) * 2
 
             if USE_JUDGE:
-                total_reward = (format_score * 0.2 + diff_reward * 0.6 + assert_score * 0.2) * 0.7 + judge_score * 0.3
+                total_reward = format_score * 0.05 + assert_score * 0.05 + judge_score * 0.3 + diff_reward * 0.6  
             else:
                 total_reward = format_score * 0.2 + diff_reward * 0.6 + assert_score * 0.2
 
