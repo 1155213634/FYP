@@ -156,7 +156,8 @@ def main():
         repetition_penalty=1.15,    # Additional penalty for repeating
         logging_steps=5,
         bf16=True,
-        report_to="none"
+        report_to="none",
+        top_p=0.95,
     )
 
     answerer_args = GRPOConfig(
@@ -166,6 +167,7 @@ def main():
         gradient_accumulation_steps=4,
         num_generations=GROUP_SIZE,          # Group size (G) for GRPO
         max_completion_length=256,
+        temperature=1.0,
         logging_steps=5,
         bf16=True,
         report_to="none"

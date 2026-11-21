@@ -2,7 +2,6 @@ import os
 import tempfile
 import docker
 import ast
-from requests.exceptions import Timeout
 
 class _AssertionCounter(ast.NodeTransformer):
     def _increment(self, index: int) -> ast.AugAssign:
@@ -28,13 +27,38 @@ class _AssertionCounter(ast.NodeTransformer):
                         body=[ast.Pass()],
                     )
                 ],
+                # handlers = [
+                #     ast.ExceptHandler(
+                #         type=ast.Name(id="Exception", ctx=ast.Load()),
+                #         name="exc",
+                #         body=[
+                #             ast.Expr(ast.Call(
+                #                 func=ast.Name(id="print", ctx=ast.Load()),
+                #                 args=[
+                #                     ast.Constant(
+                #                         value=f"First failure at test line {node.lineno}: "
+                #                             f"{ast.unparse(node.test)}"
+                #                     ),
+                #                     ast.Name(id="exc", ctx=ast.Load()),
+                #                     ast.Call(
+                #                         func=ast.Name(id="locals", ctx=ast.Load()),
+                #                         args=[],
+                #                         keywords=[],
+                #                     ),
+                #                 ],
+                #                 keywords=[],
+                #             )),
+                #             ast.Raise(exc=None, cause=None),
+                #         ],
+                #     )
+                # ],
                 orelse=[self._increment(0)],  # passed assertions
                 finalbody=[],
             ),
         ]
 
 class DockerSandbox:
-    def __init__(self, image_name: str = "python:3.10-slim", timeout_seconds: int = 6):
+    def __init__(self, image_name: str = "python:3.10-slim", timeout_seconds: int = 10):
         self.client = docker.from_env()
         self.image_name = image_name
         self.timeout = timeout_seconds
@@ -221,10 +245,8 @@ except AssertionError:
             passed, total = map(int, count_line[len(marker):].split(":"))
             return passed, total
 
-        except Timeout:
-            if container is not None:
-                container.kill()
-            print(f"HumanEval evaluation timed out after {self.timeout}s")
+        except Exception as ex:
+            print(f"Docker excpetion: {ex}")
             return 0, expected_total
 
         finally:

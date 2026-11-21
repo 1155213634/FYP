@@ -10,7 +10,7 @@ from docker_code import DockerSandbox
 from utils import solution_code_parser, human_eval_solution_parser
 from prompts import get_human_eval_answerer_prompt
 
-def test_model_performance(iter, model_path, QLoRA, Judged, adapter_path=None, testset="humaneval", store_log=False):
+def test_model_performance_humanevalplus(iter, model_path, QLoRA, Judged, adapter_path=None, testset="humaneval", store_log=False):
     # ==========================================
     # Configuration Constants
     # ==========================================
@@ -57,7 +57,7 @@ def test_model_performance(iter, model_path, QLoRA, Judged, adapter_path=None, t
             trust_remote_code=True,
         )
 
-    DATASET_NAME = "openai/openai_humaneval"
+    DATASET_NAME = "evalplus/humanevalplus"
     DATASET_SPLIT = "test"
 
     if QLoRA:
@@ -68,7 +68,7 @@ def test_model_performance(iter, model_path, QLoRA, Judged, adapter_path=None, t
     else:
         OUTPUT_DIR = f"./results/{model_path}"
 
-    OUTPUT_FILE = os.path.join(OUTPUT_DIR, f"evaluation_results_{iter}.json")
+    OUTPUT_FILE = os.path.join(OUTPUT_DIR, f"evaluation_results_{iter}_humanevalplus.json")
     STORE_LOG = True
 
     os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -86,7 +86,7 @@ def test_model_performance(iter, model_path, QLoRA, Judged, adapter_path=None, t
     dataset = load_dataset(DATASET_NAME)[DATASET_SPLIT]
 
     # Initialize your Docker sandbox from docker_box.py
-    sandbox = DockerSandbox(image_name="python:3.10-slim", timeout_seconds=10)
+    sandbox = DockerSandbox(image_name="fyp-sandbox", timeout_seconds=15)
 
     passed_problems = 0
     total_problems = len(dataset)

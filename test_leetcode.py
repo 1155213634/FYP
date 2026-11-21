@@ -164,7 +164,7 @@ def test_model_performance_LeetCodeDataset(iter, model_path, QLoRA, Judged, adap
                 "status": status,
                 "score": score,
                 "prompt": prompt_text,
-                "generated_code": generated_solution,
+                "generated_code": solution,
                 "test_code": LeetCodeDataset_test_code
             })
         else:
