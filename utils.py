@@ -239,7 +239,7 @@ def _collect_top_level_calls(
     builtin_names: set[str],
     spans: list[tuple[int, int, int, int, str]],
 ) -> None:
-  """Collect outermost `ast.Name` calls without descending into a call's arguments."""
+  """Collect highest-level non-builtin `ast.Name` calls without descending past them."""
   if node is None:
     return
 
@@ -256,7 +256,13 @@ def _collect_top_level_calls(
             else start_col + len(name.encode("utf-8"))
         )
         spans.append((start_line, start_col, end_line, end_col, target_name))
-    # Intentionally do NOT recurse into node.args or node.keywords.
+        # Stop here so nested calls inside a replaced non-builtin call aren't altered.
+        return
+
+    # If the call is a builtin (or not a direct non-builtin Name), descend into
+    # its arguments/keywords/subexpressions to find the highest-level non-builtin calls.
+    for child in ast.iter_child_nodes(node):
+      _collect_top_level_calls(child, target_name, builtin_names, spans)
     return
 
   for child in ast.iter_child_nodes(node):
