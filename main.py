@@ -41,13 +41,13 @@ PROP_TEMP_ANS_TRAIN = 0.7          # No. of max tokens for proposer for training
 
 JUDGE_TOKENS = 1024
 
-LOAD_IN_4BIT = False
+QUANTIZATION = True
 LORA_RANK = 16
 LORA_ALPHA = 32
 LORA_DROPOUT = 0.05
 
 quantization_config = BitsAndBytesConfig(
-    load_in_4bit=LOAD_IN_4BIT,
+    load_in_4bit=True,
     bnb_4bit_compute_dtype=torch.bfloat16,
     bnb_4bit_quant_type="nf4",
     bnb_4bit_use_double_quant=True,
@@ -115,8 +115,20 @@ def main():
 
     # Load shared or separate models for Proposer and Answerer
     print("Loading models...")
-    proposer_model = load_trainable_model()
-    answerer_model = load_trainable_model()
+    if QUANTIZATION:
+        proposer_model = load_trainable_model()
+        answerer_model = load_trainable_model()
+    else:
+        proposer_model = AutoModelForCausalLM.from_pretrained(
+            MODEL_ID,
+            dtype=torch.bfloat16,
+            device_map="auto",
+        )
+        answerer_model = AutoModelForCausalLM.from_pretrained(
+            MODEL_ID,
+            dtype=torch.bfloat16,
+            device_map="auto",
+        )
     check_gpu_mem()
     if USE_JUDGE:
         judge_tokenizer = AutoTokenizer.from_pretrained(JUDGE_MODEL_ID)
@@ -170,7 +182,7 @@ def main():
         # PHASE 1: Train Proposer (Freeze Answerer)
         # ----------------------------------------------------
         print("\n--- Phase 1: Training Proposer ---")
-        if not LOAD_IN_4BIT:
+        if not QUANTIZATION:
             for param in answerer_model.parameters():
                 param.requires_grad = False
             for param in proposer_model.parameters():
@@ -318,7 +330,7 @@ def main():
         # PHASE 2: Train Answerer (Freeze Proposer)
         # ----------------------------------------------------
         print("\n--- Phase 2: Training Answerer ---")
-        if not LOAD_IN_4BIT:
+        if not QUANTIZATION:
             for param in proposer_model.parameters():
                 param.requires_grad = False
             for param in answerer_model.parameters():

@@ -4,12 +4,13 @@ from docker_code import DockerSandbox
 from utils import human_eval_solution_parser
 
 dataset = load_dataset("openai/openai_humaneval", split="test")
-problem = dataset[0]
+problem = next(p for p in dataset if p["task_id"] == "HumanEval/38")
 
+# Keep this: it already includes the prompt helpers and canonical solution.
 reference_source = problem["prompt"] + problem["canonical_solution"]
 solution = human_eval_solution_parser(reference_source, problem["entry_point"])
 
-sandbox = DockerSandbox(image_name="python:3.10-slim", timeout_seconds=10)
+sandbox = DockerSandbox(image_name="python:3.10-slim", timeout_seconds=15)
 passed, total = sandbox.evaluate_humaneval(
     solution,
     problem["test"],
