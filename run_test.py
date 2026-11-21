@@ -5,9 +5,9 @@ import traceback
 i = 0
 max_steps = 50
 step_size = 10
-MODEL_ID = "Qwen/Qwen2.5-Coder-3B-Instruct"
+MODEL_ID = "Qwen/Qwen2.5-Coder-1.5B-Instruct"
 QLoRA = True
-Judged = True
+Judged = False
 
 while i <= max_steps:
     try:

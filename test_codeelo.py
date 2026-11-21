@@ -144,8 +144,6 @@ def test_model_performance_codeelo(iter, model_path, QLoRA, Judged, adapter_path
         else:
             evaluation_logs = None
 
-        break
-
     # Calculate final pass rate percentage
     pass_rate = (passed_problems / total_problems) * 100 if total_problems > 0 else 0
 

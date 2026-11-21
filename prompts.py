@@ -1,9 +1,14 @@
 def get_proposer_prompt(iter):
     # Initial Seed Prompts for Proposer
     seed_prompts = [
-        "Create an algorithmic problem involving arrays and target sums.",
-        "Create an algorithmic problem involving string reversal or parsing.",
-        "Create an algorithmic problem involving number validations."
+        "Create an algorithmic problem involving arrays.",
+        "Create an algorithmic problem involving string manipulations.",
+        "Create an algorithmic problem involving number validations.",
+        "Create any algorithmic problem.",
+        "Create an algorithmic problem involving data structures.",
+        "Create an algorithmic problem involving classes.",
+        "Create any algorithmic problem."
+
     ]
 
     current_seed = seed_prompts[iter % len(seed_prompts)]
@@ -300,7 +305,7 @@ def f(input:str):
             {
                 "role": "user", 
                 "content": (
-                    f"Write a Python function to solve this problem:\n{problem_desc}\n\n"
+                    f"Write a Python function to solve this problem:\n{problem_desc}\n\n. Accept only one string as input and return one string as output."
                 )
             }
         ]

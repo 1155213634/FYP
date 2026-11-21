@@ -16,16 +16,16 @@ from utils import clean_code_output, parse_proposer_output, validate_assertions,
 # 0. CONSTANTS
 # ==========================================
 # MODEL_ID = "HuggingFaceTB/SmolLM2-360M-Instruct"
-# MODEL_ID = "Qwen/Qwen2.5-Coder-1.5B-Instruct"
-MODEL_ID = "Qwen/Qwen2.5-Coder-3B-Instruct"
+MODEL_ID = "Qwen/Qwen2.5-Coder-1.5B-Instruct"
+# MODEL_ID = "Qwen/Qwen2.5-Coder-3B-Instruct"
 # MODEL_ID = "Qwen/Qwen2.5-Coder-7B-Instruct"
 # MODEL_ID = "stabilityai/stable-code-instruct-3b"
 # MODEL_ID = "meta-llama/Llama-3.2-3B-Instruct"
 
-USE_JUDGE = True
+USE_JUDGE = False
 JUDGE_MODEL_ID = "Qwen/Qwen3-4B-Instruct-2507"
 
-DO_LOGGING = True
+DO_LOGGING = False
 LOG_FILE = f"./results/{MODEL_ID}/training_rollouts{"_judge" if USE_JUDGE else ''}.jsonl"
 
 LEARN_RATE = 5e-6
@@ -41,7 +41,7 @@ PROP_TEMP_ANS_TRAIN = 0.7          # No. of max tokens for proposer for training
 
 JUDGE_TOKENS = 1024
 
-LOAD_IN_4BIT = True
+LOAD_IN_4BIT = False
 LORA_RANK = 16
 LORA_ALPHA = 32
 LORA_DROPOUT = 0.05
@@ -174,7 +174,8 @@ def main():
             for param in answerer_model.parameters():
                 param.requires_grad = False
             for param in proposer_model.parameters():
-                param.requires_grad = True
+                if param.is_floating_point() or param.is_complex():
+                    param.requires_grad = True
 
 
         def logical_assertion_reward_func(prob_desc, test_code):
@@ -321,7 +322,8 @@ def main():
             for param in proposer_model.parameters():
                 param.requires_grad = False
             for param in answerer_model.parameters():
-                param.requires_grad = True
+                if param.is_floating_point() or param.is_complex():
+                    param.requires_grad = True
 
         proposer_model.eval()
 

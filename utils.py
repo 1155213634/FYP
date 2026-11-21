@@ -168,6 +168,7 @@ def get_assert_lines_codeelo(test_cases):
 
     inputs = test_cases[0][0]
     input_text = split_lines(inputs)
+    print(input_text)
     test_length = int(input_text.pop(0))
 
     outputs = test_cases[0][1]
