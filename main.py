@@ -40,7 +40,7 @@ LOG_PERIOD = 1
 LOG_FILE = f"./results/{MODEL_ID}/training_rollouts{"_judge" if USE_JUDGE else ''}.jsonl"
 
 LEARN_RATE = 5e-6
-MAX_ITER = 10                      # No. of total loops
+MAX_ITER = 50                      # No. of total loops
 GROUP_SIZE = 4                      # GRPO group size
 
 PROP_MAX_TOKEN_TRAIN = 512         # No. of max tokens for proposer for GRPO

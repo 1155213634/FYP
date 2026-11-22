@@ -449,3 +449,5 @@ def get_good_probs():
             "assert solution(\"abc\") == 0",
         ),
     ]
+
+    return proposer_good_probs
