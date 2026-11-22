@@ -67,7 +67,7 @@ def validate_assertions(test_code_str):
             if isinstance(node, ast.Assert):
                 assertion_count += 1
     
-    if assertion_count < 4:
+    if  0 < assertion_count < 4:
         score += 0.3
         
     return score

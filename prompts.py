@@ -1,177 +1,105 @@
 def get_proposer_prompt(iter, previous_question_1=None, previous_question_2=None):
-    # Initial Seed Prompts for Proposer
     seed_prompts = [
-    # 1. Sequence & Array Logic
-    "two pointers and array partitioning",
-    "prefix sums and subarray properties",
-    "sliding window over arrays or strings",
-
-    # 2. String Manipulation & Parsing
-    "string parsing and pattern matching",
-    "run-length encoding and string compression",
-
-    # 3. Intervals & Ordering
-    "interval merging and coverage",
-    "custom sorting order and rank transformations",
-
-    # 4. Hash Tables & Frequencies
-    "frequency counting and majority element logic",
-    "hash mapping and duplicate tracking",
-
-    # 5. Algorithmic Decision Making
-    "greedy choice and local optimization",
-    "binary search on answer ranges",
-    "1D dynamic programming and state transitions",
-
-    # 6. Extras
-    "grid movement with directional turns, obstacles, or energy costs",
-    "resource allocation or budget-constrained selection",
-]
+        # 1. Sequence & Array Logic
+        "two pointers and array partitioning",
+        "prefix sums and subarray properties",
+        "sliding window over arrays or strings",
+        # 2. String Manipulation & Parsing
+        "string parsing and pattern matching",
+        "run-length encoding and string compression",
+        # 3. Intervals & Ordering
+        "interval merging and coverage",
+        "custom sorting order and rank transformations",
+        # 4. Hash Tables & Frequencies
+        "frequency counting and majority element logic",
+        "hash mapping and duplicate tracking",
+        # 5. Algorithmic Decision Making
+        "greedy choice and local optimization",
+        "binary search on answer ranges",
+        "1D dynamic programming and state transitions",
+        # 6. Extras
+        # "grid movement with directional turns, obstacles, or energy costs",
+        # "resource allocation or budget-constrained selection",
+    ]
 
     current_seed = seed_prompts[iter % len(seed_prompts)]
 
+    distinctness_rule = (
+        "Make the new problem distinct in logic and structure from the previous "
+        "problems shown, without making it obscure or ambiguous. "
+        if (previous_question_1 is not None and previous_question_2 is not None)
+        else ""
+    )
+
+    system_content = (
+        "You are a concise competitive programming problem creator. "
+        f"{distinctness_rule}"
+        "Keep [PROBLEM] brief (at most 1 concise paragraph + 1-2 short constraint lines; "
+        "no long stories, no multi-step hints/explanations, and no text after [TESTS]).\n\n"
+        "Use exact tags:\n"
+        "[PROBLEM]\n"
+        "<concise problem statement defining `solution(...)`>\n\n"
+        "[TESTS]\n"
+        "```python\n"
+        "<up to 3 standalone `assert solution(...) == ...` lines only>\n"
+        "```\n\n"
+        "Requirements:\n"
+        "- Every test must call `solution(...)` directly with matching argument count and types.\n"
+        "- Do not define helper functions, classes, loops, or print statements in [TESTS].\n"
+        "- Aim for medium difficulty using clean algorithmic reasoning (pointers, prefix sums, "
+        "sliding window, hashing, sorting, binary search, or 1D DP) with unambiguous edge cases."
+    )
+
+    messages = [{"role": "system", "content": system_content}]
+
     if previous_question_1 is not None and previous_question_2 is not None:
-        proposer_messages = [
-            {
-                "role": "system",
-                "content": (
-                    "You are an expert programming problem creator. "
-                    "Make the new problem distinct in logic and structure from the two "
-                    "previous problems shown in this conversation, without making it overly "
-                    "obscure or ambiguous."
-                    "You must always structure your response using exact tags: "
-                    "[PROBLEM] followed by the problem description, and "
-                    "[TESTS] followed by a Python code block containing up to 3 assertions "
-                    "that call `solution(...)`. No other code is allowed other than assertions."
-                    f"""
-### Evaluation Criteria:
-- Executability, your assert statements should be executable
-- Correctness, your assert statements should be correct for the problem proposed
-- Difficulty in solving the coding problem. Focus on either algorithmic reasoning or logic complexity. For example, you can use questions that require complex data structure classes and operate on them like trees, heaps, stacks, queues, graphs, etc, or use complex control flow, dynamic programming, recursions, divide and conquer, greedy, backtracking, etc
-- Creativity, the problem needs to be sufficiently different from the provided reference problem
-"""
-                )
-            },
-            # Reference problem
-            {
+        for prev_q in (previous_question_1, previous_question_2):
+            messages.append({
                 "role": "user",
-                "content": "Create an algorithmic coding problem based on this topic:\nTopic: Create any algorithmic problem."
-            },
-            {
+                "content": "Create a concise algorithmic coding problem on topic: general algorithms.",
+            })
+            messages.append({
                 "role": "assistant",
                 "content": (
                     "[PROBLEM]\n"
-                    f"{previous_question_1[0]}\n\n"
+                    f"{prev_q[0].strip()}\n\n"
                     "[TESTS]\n"
                     "```python\n"
-                    f"{previous_question_1[1]}\n"
+                    f"{prev_q[1].strip()}\n"
                     "```"
-                )
-            },
-            {
-                "role": "user",
-                "content": "Create an algorithmic coding problem based on this topic:\nTopic: Create any algorithmic problem."
-            },
-            {
-                "role": "assistant",
-                "content": (
-                    "[PROBLEM]\n"
-                    f"{previous_question_2[0]}\n\n"
-                    "[TESTS]\n"
-                    "```python\n"
-                    f"{previous_question_2[1]}\n"
-                    "```"
-                )
-            },
-            # Actual user prompt for the current iteration
-            {
-                "role": "user",
-                "content": (
-                    f"Create an algorithmic coding problem based on this topic:\nTopic: {current_seed}\n\n"
-                    "Strictly follow the [PROBLEM] and [TESTS] tag format. Only up to 3 assertions allowed."
-                )
-            }
-        ]
+                ),
+            })
     else:
-        proposer_messages = [
-        {
-            "role": "system",
-            "content": (
-                "You are an expert programming problem creator. "
-                "You must always structure your response using exact tags: "
-                "[PROBLEM] followed by the problem description, and "
-                "[TESTS] followed by a Python code block containing up to 3 assertions "
-                "that call `solution(...)`. No other code is allowed other than assertions."
-                """
-### Evaluation Criteria:
-- Executability, your assert statements should be executable
-- Correctness, your assert statements should be correct for the problem proposed
-- Difficulty in solving the coding problem. Focus on either algorithmic reasoning or logic complexity. For example, you can use questions that require complex data structure classes and operate on them like trees, heaps, stacks, queues, graphs, etc, or use complex control flow, dynamic programming, recursions, divide and conquer, greedy, backtracking, etc
-- Creativity, the problem needs to be sufficiently different from the provided reference problem
-"""
-            )
-        },
-        # Few-shot example as an actual conversation turn
-        {
+        # Single compact few-shot example to keep prompt overhead low
+        messages.append({
             "role": "user",
-            "content": "Create an algorithmic coding problem based on this topic:\nTopic: string reversal"
-        },
-        {
+            "content": "Create a concise algorithmic coding problem on topic: sliding window over arrays or strings",
+        })
+        messages.append({
             "role": "assistant",
             "content": (
                 "[PROBLEM]\n"
-                "Write a function `solution(s, k)` that takes a string `s` and a positive integer `k`.\n\n"
-                "Split `s` into blocks of size `2k` from left to right. In each block:\n"
-                "- Reverse the first `k` characters.\n"
-                "- Leave the remaining characters in that block unchanged.\n"
-                "- If fewer than `k` characters remain at the end of `s`, reverse all of them.\n\n"
-                "Constraints:\n"
-                "- `1 <= len(s) <= 10^4\n"
-                "- `1 <= k <= 10^4\n"
-                "- Target `O(n)` time.\n\n"
+                "Write a function `solution(nums, k)` that returns the maximum sum of any "
+                "contiguous subarray of length `k` in `nums`, or `None` if `len(nums) < k` or `k <= 0`.\n"
+                "Constraints: `0 <= len(nums) <= 10^5`, `-10^4 <= nums[i] <= 10^4`.\n\n"
                 "[TESTS]\n"
                 "```python\n"
-                "assert solution(\"abcdefg\", 2) == \"bacdfeg\"\n"
-                "assert solution(\"abcd\", 2) == \"bacd\"\n"
-                "assert solution(\"a\", 5) == \"a\"\n"
-                "```"
-            )
-        },
-        {
-            "role": "user",
-            "content": "Create an algorithmic coding problem based on this topic:\nTopic: array sum"
-        },
-        {
-            "role": "assistant",
-            "content": (
-                "[PROBLEM]\n"
-                "Write a function `solution(nums)` that takes a list of integers `nums` "
-                "and returns the alternating sum of its elements: add elements at even "
-                "indices (0, 2, 4, ...) and subtract elements at odd indices (1, 3, 5, ...). "
-                "Return 0 if `nums` is empty.\n\n"
-                "Constraints:\n"
-                "- 0 <= len(nums) <= 10^4\n"
-                "- -10^4 <= nums[i] <= 10^4\n"
-                "- Aim for O(n) time.\n\n"
-                "[TESTS]\n"
-                "```python\n"
-                "assert solution([1, 2, 3, 4]) == -2\n"
-                "assert solution([10, 5, 2]) == 7\n"
-                "assert solution([]) == 0\n"
+                "assert solution([2, 1, 5, 1, 3, 2], 3) == 9\n"
+                "assert solution([-2, -1, -3], 2) == -3\n"
+                "assert solution([1, 2], 3) is None\n"
                 "```"
             ),
-        },
-        # Actual user prompt for the current iteration
-        {
-            "role": "user",
-            "content": (
-                f"Create an algorithmic coding problem based on this topic:\nTopic: {current_seed}\n\n"
-                "Strictly follow the [PROBLEM] and [TESTS] tag format. Only up to 3 assertions allowed."
-            )
-        }
-    ]
-    
-    return proposer_messages
+        })
+
+    messages.append({
+        "role": "user",
+        "content": (
+            f"Create a concise algorithmic coding problem on topic: {current_seed}\n"
+            "Output ONLY [PROBLEM] and [TESTS] with up to 3 `assert solution(...)` lines."
+        ),
+    })
+
+    return messages
 
 
 def get_answerer_prompt(problem_desc):

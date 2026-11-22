@@ -43,7 +43,7 @@ LEARN_RATE = 5e-6
 MAX_ITER = 50                      # No. of total loops
 GROUP_SIZE = 4                      # GRPO group size
 
-PROP_MAX_TOKEN_TRAIN = 512         # No. of max tokens for proposer for GRPO
+PROP_MAX_TOKEN_TRAIN = 320         # No. of max tokens for proposer for GRPO
 ANS_MAX_TOKEN_TRAIN = 256          # No. of max tokens for answerer for GRPO
 
 ANS_ATTEMPTS_PROP_TRAIN = 4        # No. of answerer attempts to calculate proposer difficulty score
