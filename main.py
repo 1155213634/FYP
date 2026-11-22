@@ -41,7 +41,7 @@ LOG_FILE = f"./results/{MODEL_ID}/training_rollouts{"_judge" if USE_JUDGE else '
 
 LEARN_RATE = 5e-6
 MAX_ITER = 10                      # No. of total loops
-GROUP_SIZE = 6                      # GRPO group size
+GROUP_SIZE = 4                      # GRPO group size
 
 ANS_ATTEMPTS_PROP_TRAIN = 4        # No. of answerer attempts to calculate proposer difficulty score
 ANS_TOKENS_PROP_TRAIN = 256        # No. of max tokens for answerer for training proposer
@@ -52,8 +52,9 @@ PROP_TOKENS_ANS_TRAIN = 256        # No. of max tokens for proposer for training
 PROP_TEMP_ANS_TRAIN = 0.7          # No. of max tokens for proposer for training answerer
 
 PROP_REFERENCE_PREV_QUESTIONS = True
+SWITCH_PROP_REFERENCE_ITERATION = 4
 
-JUDGE_TOKENS = 1024
+JUDGE_TOKENS = 512
 
 QUANTIZATION = False
 LORA_RANK = 16
@@ -303,7 +304,7 @@ def main():
                 with torch.no_grad():
                     outs = answerer_model.generate(**inputs, max_new_tokens=ANS_TOKENS_PROP_TRAIN,
                                                 do_sample=True, temperature=ANS_TEMP_PROP_TRAIN,
-                                                num_return_sequences=4)
+                                                num_return_sequences=6)
                 for out in outs:
                     generated_tokens = out[input_len:]
                 
@@ -339,7 +340,7 @@ def main():
             if USE_JUDGE:
                 total_reward = format_score * 0.05 + assert_score * 0.05 + judge_score * 0.3 + diff_reward * 0.6  
             else:
-                total_reward = format_score * 0.1 + diff_reward * 0.8 + assert_score * 0.1
+                total_reward = format_score * 0.05 + diff_reward * 0.85 + assert_score * 0.1
 
             # Log results to file
             if iteration % LOG_PERIOD == 0: 
@@ -422,7 +423,7 @@ def main():
             
         rand_ints = [random.randint(0, 1000) for _ in range(4)]
 
-        if iteration > 5 and PROP_REFERENCE_PREV_QUESTIONS:
+        if iteration >= SWITCH_PROP_REFERENCE_ITERATION and PROP_REFERENCE_PREV_QUESTIONS:
             proposer_prompts = [
                 tokenizer.apply_chat_template(
                     get_proposer_prompt(val, proposer_good_probs[0], proposer_good_probs[1]),
