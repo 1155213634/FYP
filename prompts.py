@@ -31,7 +31,7 @@ def get_proposer_prompt(iter, previous_question_1=None, previous_question_2=None
 ### Evaluation Criteria:
 - Executability, your assert statements should be executable
 - Correctness, your assert statements should be correct for the problem proposed
-- Difficulty in solving the coding problem. Focus on either algorithmic reasoning or logic complexity. For example, you can use questions that require complex data structure classes and operate on them like trees, heaps, stacks, queues, graphs, etc, or use complex control flow, dynamic programming, recursions, divide and conquer, greedy, backtracking, etc
+- Difficulty in solving the coding problem. Focus on either algorithmic reasoning or logic complexity.
 - Creativity, the problem needs to be sufficiently different from the provided reference problem
 """
                 )
@@ -90,7 +90,7 @@ def get_proposer_prompt(iter, previous_question_1=None, previous_question_2=None
 ### Evaluation Criteria:
 - Executability, your assert statements should be executable
 - Correctness, your assert statements should be correct for the problem proposed
-- Difficulty in solving the coding problem. Focus on either algorithmic reasoning or logic complexity. For example, you can use questions that require complex data structure classes and operate on them like trees, heaps, stacks, queues, graphs, etc, or use complex control flow, dynamic programming, recursions, divide and conquer, greedy, backtracking, etc
+- Difficulty in solving the coding problem. Focus on either algorithmic reasoning or logic complexity.
 - Creativity, the problem needs to be sufficiently different from the provided reference problem
 """
             )

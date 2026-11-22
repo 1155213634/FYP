@@ -70,7 +70,7 @@ def validate_assertions(test_code_str):
     if assertion_count > 0:
        score += 0.2
 
-    if assertion_count < 4:
+    if assertion_count < 4 and assertion_count > 0:
         score += 0.3
         
     return score
