@@ -43,13 +43,14 @@ LEARN_RATE = 5e-6
 MAX_ITER = 10                      # No. of total loops
 GROUP_SIZE = 6                      # GRPO group size
 
+PROP_MAX_TOKEN_TRAIN = 512         # No. of max tokens for proposer for GRPO
+ANS_MAX_TOKEN_TRAIN = 256          # No. of max tokens for answerer for GRPO
+
 ANS_ATTEMPTS_PROP_TRAIN = 4        # No. of answerer attempts to calculate proposer difficulty score
 ANS_TOKENS_PROP_TRAIN = 256        # No. of max tokens for answerer for training proposer
-ANS_TEMP_PROP_TRAIN = 0.7          # No. of max tokens for answerer for training proposer
+ANS_TEMP_PROP_TRAIN = 0.7          # No. of temp for answerer for training proposer
 ANS_SCORE_POWER = 2                # ratio of asserts passed ^ power
 
-PROP_TOKENS_ANS_TRAIN = 256        # No. of max tokens for proposer for training answerer
-PROP_TEMP_ANS_TRAIN = 0.7          # No. of max tokens for proposer for training answerer
 
 PROP_REFERENCE_PREV_QUESTIONS = True
 SWITCH_PROP_REFERENCE_ITERATION = 4
@@ -64,11 +65,13 @@ LORA_DROPOUT = 0.05
 # Not constant but i need it global as a crutch
 proposer_good_probs = [
     (
-        "Write a function `solution(nums, threshold)` that returns the sum of all numbers in `nums` that are strictly greater than `threshold`. Return `0` if no elements qualify or `nums` is empty.\n",
-        "assert solution([1, 5, 2, 8], 3) == 13\nassert solution([-4, -1, 0, 3], -2) == 2\nassert solution([], 5) == 0",
+        "Write a function `solution(nums, threshold)` that returns the sum of all elements "
+        "at even indices (`0, 2, 4, ...`) in `nums` that are strictly greater than `threshold`. "
+        "Return `0` if no elements qualify or `nums` is empty.\n",
+        "assert solution([1, 5, 2, 8, 6, 10], 3) == 6\nassert solution([10, 2, 7, 4, 8], 5) == 25\nassert solution([1, 9, 2, 9], 5) == 0",
     )
     for i in range(4)
-]     
+]    
 
 quantization_config = BitsAndBytesConfig(
     load_in_4bit=True,
@@ -177,7 +180,7 @@ def main():
         gradient_accumulation_steps=GROUP_SIZE,
         num_generations=GROUP_SIZE,          # Group size (G) for GRPO
         num_train_epochs=1,
-        max_completion_length=256,
+        max_completion_length=PROP_MAX_TOKEN_TRAIN,
         temperature=0.8,            # Temperature for completions
         repetition_penalty=1.15,    # Additional penalty for repeating
         logging_steps=5,
@@ -199,7 +202,7 @@ def main():
         gradient_accumulation_steps=GROUP_SIZE,
         num_generations=GROUP_SIZE,          # Group size (G) for GRPO
         num_train_epochs=1,
-        max_completion_length=256,
+        max_completion_length=ANS_MAX_TOKEN_TRAIN,
         temperature=1.0,
         logging_steps=5,
         bf16=True,
