@@ -7,7 +7,7 @@ from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from docker_code import DockerSandbox
-from utils import assert_code_parser, solution_code_parser
+from utils import assertions_to_solution, clean_code_output, ensure_solution_function
 from prompts import get_answerer_prompt
 
 def parse_mbppplus_asserts(list):
@@ -104,7 +104,7 @@ def test_model_performance_mbppplus(iter, model_path, QLoRA, Judged, adapter_pat
         # Adjust field lookups according to LeetCodeDataset's data columns schema
         task_id = problem.get("task_id", f"problem_{i}")
         prompt_text = problem["prompt"]
-        test_code = assert_code_parser("\n".join(assert_statement.strip() for assert_statement in problem["test_list"]))
+        test_code = assertions_to_solution("\n".join(assert_statement.strip() for assert_statement in problem["test_list"]))
         
         # Tokenize and generate completion
         text_prompt = tokenizer.apply_chat_template(get_answerer_prompt(prompt_text), tokenize=False, add_generation_prompt=True)
@@ -118,7 +118,11 @@ def test_model_performance_mbppplus(iter, model_path, QLoRA, Judged, adapter_pat
         )
         
         generated_solution = tokenizer.decode(outputs[0][input_len:], skip_special_tokens=True)
-        solution = solution_code_parser(generated_solution)
+        clean_solution = clean_code_output(generated_solution)
+        try:
+            solution = ensure_solution_function(clean_solution)
+        except Exception as exc:
+            solution = clean_solution
 
         # Evaluate solution using DockerSandbox
         score = sandbox.evaluate(solution_code=solution, test_code=test_code, normalized=True)

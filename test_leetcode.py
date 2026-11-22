@@ -9,7 +9,7 @@ from peft import AutoPeftModelForCausalLM
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 
 from docker_code import DockerSandbox
-from utils import solution_code_parser
+from utils import solution_code_parser, ensure_solution_function, clean_code_output
 from prompts import get_answerer_prompt
 
 class KeywordToPositional(ast.NodeTransformer):
@@ -125,7 +125,7 @@ def test_model_performance_LeetCodeDataset(iter, model_path, QLoRA, Judged, adap
         raw_LeetCodeDataset_tests = textwrap.dedent(problem.get("test").split('\n', 1)[-1])
 
         tree = ast.parse(raw_LeetCodeDataset_tests)
-        modified_tree = KeywordToPositional(target_func="candidate").visit(tree)
+        modified_tree = KeywordToPositional(target_func="solution").visit(tree)
         ast.fix_missing_locations(modified_tree)
         
         messages = get_answerer_prompt(prompt_text)
@@ -145,7 +145,11 @@ def test_model_performance_LeetCodeDataset(iter, model_path, QLoRA, Judged, adap
             outputs[0][input_len:], skip_special_tokens=True
         )
 
-        solution = ensure_solution_function(generated_solution)
+        solution = clean_code_output(generated_solution)
+        try:
+            solution = ensure_solution_function(generated_solution)
+        except Exception as exc:
+            pass
 
         # Evaluate using sandbox
         LeetCodeDataset_test_code = ast.unparse(modified_tree)

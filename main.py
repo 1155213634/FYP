@@ -317,6 +317,12 @@ def main():
                     score = 0.0
                     if can_compile:
                         score = sandbox.evaluate(solution, test_code)
+                        if score <= 0.5:
+                            score = 0
+                        elif score <= 0.9:
+                            score = 0.2
+                        else:
+                            score = 1.0
                     scores.append(score)
 
                 avg_score = sum(scores) / len(scores)
@@ -363,8 +369,10 @@ def main():
             
             if can_compile:
                 score = sandbox.evaluate(solution, test_code)
+                score = power(score,3)
             else:
                 score = 0.0
+            
 
             # Log results
             if iteration % LOG_PERIOD == 0: 
