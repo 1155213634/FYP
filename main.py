@@ -26,8 +26,8 @@ warnings.filterwarnings(
 # 0. CONSTANTS
 # ==========================================
 # MODEL_ID = "HuggingFaceTB/SmolLM2-360M-Instruct"
-MODEL_ID = "Qwen/Qwen2.5-Coder-1.5B-Instruct"
-# MODEL_ID = "Qwen/Qwen2.5-Coder-3B-Instruct"
+# MODEL_ID = "Qwen/Qwen2.5-Coder-1.5B-Instruct"
+MODEL_ID = "Qwen/Qwen2.5-Coder-3B-Instruct"
 # MODEL_ID = "Qwen/Qwen2.5-Coder-7B-Instruct"
 # MODEL_ID = "stabilityai/stable-code-instruct-3b"
 # MODEL_ID = "meta-llama/Llama-3.2-3B-Instruct"
@@ -492,7 +492,7 @@ def main():
             answerer_trainer.train()
 
         # Saving
-        if (iteration+1) % 20 == 0:
+        if (iteration+1) % 10 == 0:
             print("Saving final models to disk...")
             proposer_model.save_pretrained(f"./trained/{MODEL_ID}/{iteration+1}_proposer_model")
             answerer_model.save_pretrained(f"./trained/{MODEL_ID}/{iteration+1}_answerer_model")
