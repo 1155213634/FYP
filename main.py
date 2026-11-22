@@ -62,9 +62,13 @@ LORA_ALPHA = 32
 LORA_DROPOUT = 0.05
 
 # Not constant but i need it global as a crutch
-proposer_good_probs = [("Write a Python function to solve this problem: array sum\n",
-                        "assert solution([1, 2, 3]) == 6\nassert solution([1]) == 1\nassert solution([]) == 0")
-                        for i in range(4)]    
+proposer_good_probs = [
+    (
+        "Write a function `solution(nums, threshold)` that returns the sum of all numbers in `nums` that are strictly greater than `threshold`. Return `0` if no elements qualify or `nums` is empty.\n",
+        "assert solution([1, 5, 2, 8], 3) == 13\nassert solution([-4, -1, 0, 3], -2) == 2\nassert solution([], 5) == 0",
+    )
+    for i in range(4)
+]     
 
 quantization_config = BitsAndBytesConfig(
     load_in_4bit=True,
