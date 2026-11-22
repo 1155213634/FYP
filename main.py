@@ -41,7 +41,7 @@ LOG_FILE = f"./results/{MODEL_ID}/training_rollouts{"_judge" if USE_JUDGE else '
 
 LEARN_RATE = 5e-6
 MAX_ITER = 10                      # No. of total loops
-GROUP_SIZE = 4                      # GRPO group size
+GROUP_SIZE = 6                      # GRPO group size
 
 ANS_ATTEMPTS_PROP_TRAIN = 4        # No. of answerer attempts to calculate proposer difficulty score
 ANS_TOKENS_PROP_TRAIN = 256        # No. of max tokens for answerer for training proposer
@@ -278,13 +278,15 @@ def main():
                 continue
 
             # Reward for correct assertion code
+            pass_assert = True
             assert_score = 0.0
             try:
                 test_code = assertions_to_solution(test_code)
             except Exception as exc:
-                assert_score = -1.0
+                pass_assert = False
 
-            assert_score += validate_assertions(test_code)
+            if pass_assert:
+                assert_score += validate_assertions(test_code)
 
             # Assert judge
             judge_score = 0.0
