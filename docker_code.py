@@ -63,7 +63,7 @@ class DockerSandbox:
         self.image_name = image_name
         self.timeout = timeout_seconds
 
-    def evaluate(self, solution_code: str, test_code: str, normalized=True) -> float:
+    def evaluate(self, solution_code: str, test_code: str, normalized=True, power=2) -> float:
         list_of_lines = test_code.split("\n")
         list_of_assert = [assert_statement for assert_statement in list_of_lines if "assert" in assert_statement]
         assert_stuff = ""
@@ -111,7 +111,7 @@ exit(0)
             if result.get('StatusCode', -1) == 0:
                 if normalized:
                     # 0.05 points for evaluate able to run, though max is 1.05
-                    return norm_score + 0.05
+                    return pow(norm_score, power) + 0.05
                 else:
                     return score
             return 0.0

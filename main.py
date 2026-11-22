@@ -26,8 +26,8 @@ warnings.filterwarnings(
 # 0. CONSTANTS
 # ==========================================
 # MODEL_ID = "HuggingFaceTB/SmolLM2-360M-Instruct"
-# MODEL_ID = "Qwen/Qwen2.5-Coder-1.5B-Instruct"
-MODEL_ID = "Qwen/Qwen2.5-Coder-3B-Instruct"
+MODEL_ID = "Qwen/Qwen2.5-Coder-1.5B-Instruct"
+# MODEL_ID = "Qwen/Qwen2.5-Coder-3B-Instruct"
 # MODEL_ID = "Qwen/Qwen2.5-Coder-7B-Instruct"
 # MODEL_ID = "stabilityai/stable-code-instruct-3b"
 # MODEL_ID = "meta-llama/Llama-3.2-3B-Instruct"
@@ -41,16 +41,17 @@ LOG_FILE = f"./results/{MODEL_ID}/training_rollouts{"_judge" if USE_JUDGE else '
 
 LEARN_RATE = 5e-6
 MAX_ITER = 100                      # No. of total loops
-GROUP_SIZE = 4                     # GRPO group size
+GROUP_SIZE = 6                      # GRPO group size
 
 ANS_ATTEMPTS_PROP_TRAIN = 4        # No. of answerer attempts to calculate proposer difficulty score
 ANS_TOKENS_PROP_TRAIN = 256        # No. of max tokens for answerer for training proposer
 ANS_TEMP_PROP_TRAIN = 0.7          # No. of max tokens for answerer for training proposer
+ANS_SCORE_POWER = 2                # ratio of asserts passed ^ power
 
 PROP_TOKENS_ANS_TRAIN = 256        # No. of max tokens for proposer for training answerer
 PROP_TEMP_ANS_TRAIN = 0.7          # No. of max tokens for proposer for training answerer
 
-PROP_REFERENCE_PREV_QUESTIONS = False
+PROP_REFERENCE_PREV_QUESTIONS = True
 
 JUDGE_TOKENS = 1024
 
@@ -168,7 +169,7 @@ def main():
         save_strategy="no",
         learning_rate=LEARN_RATE,
         per_device_train_batch_size=1,
-        gradient_accumulation_steps=4,
+        gradient_accumulation_steps=GROUP_SIZE,
         num_generations=GROUP_SIZE,          # Group size (G) for GRPO
         num_train_epochs=1,
         max_completion_length=256,
@@ -190,7 +191,7 @@ def main():
         save_strategy="no",
         learning_rate=LEARN_RATE,
         per_device_train_batch_size=1,
-        gradient_accumulation_steps=4,
+        gradient_accumulation_steps=GROUP_SIZE,
         num_generations=GROUP_SIZE,          # Group size (G) for GRPO
         num_train_epochs=1,
         max_completion_length=256,
@@ -290,7 +291,7 @@ def main():
             
             diff_reward = 0.0
             solution = None
-            avg_score = -1
+            avg_score = 0.0
             if assert_score > 0.9 and (judge_score > 0.9 or not USE_JUDGE):
                 # Format requirements built into the answerer prompt
                 text_prompt = tokenizer.apply_chat_template(get_answerer_prompt(prob_desc), tokenize=False, add_generation_prompt=True)
@@ -338,7 +339,7 @@ def main():
             if USE_JUDGE:
                 total_reward = format_score * 0.05 + assert_score * 0.05 + judge_score * 0.3 + diff_reward * 0.6  
             else:
-                total_reward = format_score * 0.2 + diff_reward * 0.6 + assert_score * 0.2
+                total_reward = format_score * 0.1 + diff_reward * 0.8 + assert_score * 0.1
 
             # Log results to file
             if iteration % LOG_PERIOD == 0: 
@@ -370,8 +371,7 @@ def main():
                 can_compile = False
             
             if can_compile:
-                score = sandbox.evaluate(solution, test_code)
-                score = pow(score,2)
+                score = sandbox.evaluate(solution, test_code, power=ANS_SCORE_POWER)
             else:
                 score = 0.0
             
@@ -422,7 +422,7 @@ def main():
             
         rand_ints = [random.randint(0, 1000) for _ in range(4)]
 
-        if iter > 5 and PROP_REFERENCE_PREV_QUESTIONS:
+        if iteration > 5 and PROP_REFERENCE_PREV_QUESTIONS:
             proposer_prompts = [
                 tokenizer.apply_chat_template(
                     get_proposer_prompt(val, proposer_good_probs[0], proposer_good_probs[1]),
