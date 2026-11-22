@@ -9,7 +9,7 @@ from trl import GRPOTrainer, GRPOConfig
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
 
-from prompts import get_proposer_prompt, get_answerer_prompt, get_judge_prompt
+from prompts import get_proposer_prompt, get_answerer_prompt, get_judge_prompt, get_good_probs
 from docker_code import DockerSandbox
 from utils import clean_code_output, parse_proposer_output, validate_assertions, assert_code_parser, solution_code_parser
 from utils import check_gpu_mem, judge_response_parser, assertions_to_solution, ensure_solution_function
@@ -40,7 +40,7 @@ LOG_PERIOD = 1
 LOG_FILE = f"./results/{MODEL_ID}/training_rollouts{"_judge" if USE_JUDGE else ''}.jsonl"
 
 LEARN_RATE = 5e-6
-MAX_ITER = 10                      # No. of total loops
+MAX_ITER = 50                      # No. of total loops
 GROUP_SIZE = 4                      # GRPO group size
 
 PROP_MAX_TOKEN_TRAIN = 512         # No. of max tokens for proposer for GRPO
@@ -63,15 +63,7 @@ LORA_ALPHA = 32
 LORA_DROPOUT = 0.05
 
 # Not constant but i need it global as a crutch
-proposer_good_probs = [
-    (
-        "Write a function `solution(nums, threshold)` that returns the sum of all elements "
-        "at even indices (`0, 2, 4, ...`) in `nums` that are strictly greater than `threshold`. "
-        "Return `0` if no elements qualify or `nums` is empty.\n",
-        "assert solution([1, 5, 2, 8, 6, 10], 3) == 6\nassert solution([10, 2, 7, 4, 8], 5) == 25\nassert solution([1, 9, 2, 9], 5) == 0",
-    )
-    for i in range(4)
-]    
+proposer_good_probs = get_good_probs() 
 
 quantization_config = BitsAndBytesConfig(
     load_in_4bit=True,
@@ -342,7 +334,7 @@ def main():
                 avg_score = sum(scores) / len(scores)
                 diff_reward = 1.0 - abs(avg_score - 0.5) * 2
 
-            if 0.3 <= avg_score <= 0.7:
+            if 0.3 <= avg_score <= 0.9:
                 proposer_good_probs.append((prob_desc, test_code))
                 if len(proposer_good_probs) > 4:
                     del proposer_good_probs[:-4]

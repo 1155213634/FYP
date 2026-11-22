@@ -1,16 +1,32 @@
 def get_proposer_prompt(iter, previous_question_1=None, previous_question_2=None):
     # Initial Seed Prompts for Proposer
     seed_prompts = [
-        "Create an algorithmic problem involving arrays.",
-        "Create an algorithmic problem involving string manipulations.",
-        "Create an algorithmic problem involving number validations.",
-        "Create any algorithmic problem.",
-        "Create an algorithmic problem involving data structures.",
-        "Create any algorithmic problem.",
-        "Create an algorithmic problem involving substrings.",
-        "Create an algorithmic problem involving sorting.",
-        "Create an algorithmic problem involving searching."
-    ]
+    # 1. Sequence & Array Logic
+    "two pointers and array partitioning",
+    "prefix sums and subarray properties",
+    "sliding window over arrays or strings",
+
+    # 2. String Manipulation & Parsing
+    "string parsing and pattern matching",
+    "run-length encoding and string compression",
+
+    # 3. Intervals & Ordering
+    "interval merging and coverage",
+    "custom sorting order and rank transformations",
+
+    # 4. Hash Tables & Frequencies
+    "frequency counting and majority element logic",
+    "hash mapping and duplicate tracking",
+
+    # 5. Algorithmic Decision Making
+    "greedy choice and local optimization",
+    "binary search on answer ranges",
+    "1D dynamic programming and state transitions",
+
+    # 6. Extras
+    "grid movement with directional turns, obstacles, or energy costs",
+    "resource allocation or budget-constrained selection",
+]
 
     current_seed = seed_prompts[iter % len(seed_prompts)]
 
@@ -20,8 +36,9 @@ def get_proposer_prompt(iter, previous_question_1=None, previous_question_2=None
                 "role": "system",
                 "content": (
                     "You are an expert programming problem creator. "
-                    "Create a problem that is strictly harder and more intricate than the two "
-                    "previous assistant problems provided in this conversation, while staying clear and solvable.\n"
+                    "Make the new problem distinct in logic and structure from the two "
+                    "previous problems shown in this conversation, without making it overly "
+                    "obscure or ambiguous."
                     "You must always structure your response using exact tags: "
                     "[PROBLEM] followed by the problem description, and "
                     "[TESTS] followed by a Python code block containing up to 3 assertions "
@@ -391,3 +408,46 @@ def f(input:str):
         ]
 
     return answerer_messages
+
+
+def get_good_probs():
+    proposer_good_probs = [
+        # 1. Longest alternating / sign-flipping or parity-alternating subarray length
+        (
+            "Write a function `solution(nums)` that returns the length of the longest contiguous "
+            "subarray in `nums` where adjacent elements strictly alternate in parity (even then odd, "
+            "or odd then even). Return `0` if `nums` is empty.\n",
+            "assert solution([2, 1, 4, 3, 6]) == 5\n"
+            "assert solution([1, 3, 5, 2, 4]) == 2\n"
+            "assert solution([]) == 0",
+        ),
+        # 2. Subarray count with target prefix sum
+        (
+            "Write a function `solution(nums, target)` that returns the number of contiguous "
+            "subarrays in `nums` whose elements sum to `target`. Elements may be negative, zero, "
+            "or positive.\n",
+            "assert solution([1, 1, 1], 2) == 2\n"
+            "assert solution([1, -1, 1, -1], 0) == 4\n"
+            "assert solution([], 0) == 0",
+        ),
+        # 3. Minimum window / segment length reaching at least target sum
+        (
+            "Write a function `solution(nums, target)` that returns the minimum length of a "
+            "contiguous subarray of non-negative integers in `nums` whose sum is greater than or "
+            "equal to `target`. Return `0` if no such subarray exists.\n",
+            "assert solution([2, 3, 1, 2, 4, 3], 7) == 2\n"
+            "assert solution([1, 4, 4], 4) == 1\n"
+            "assert solution([1, 1, 1], 10) == 0",
+        ),
+        # 4. Run-length / balanced bracket or token depth / interval overlap count
+        (
+            "Write a function `solution(s)` that returns the maximum nesting depth of balanced "
+            "parentheses `(` and `)` in `s`, ignoring other characters. If `s` is unbalanced at "
+            "any point or has unmatched opening parentheses at the end, return `-1`.\n",
+            "assert solution(\"(1+(2*3)+((8)/4))+1\") == 3\n"
+            "assert solution(\"(()))(\") == -1\n"
+            "assert solution(\"abc\") == 0",
+        ),
+    ]
+
+    return proposer_good_probs
