@@ -40,7 +40,7 @@ LOG_PERIOD = 1
 LOG_FILE = f"./results/{MODEL_ID}/training_rollouts{"_judge" if USE_JUDGE else ''}.jsonl"
 
 LEARN_RATE = 5e-6
-MAX_ITER = 100                      # No. of total loops
+MAX_ITER = 10                      # No. of total loops
 GROUP_SIZE = 6                      # GRPO group size
 
 ANS_ATTEMPTS_PROP_TRAIN = 4        # No. of answerer attempts to calculate proposer difficulty score
@@ -319,7 +319,7 @@ def main():
                     # Reward heuristic: Target problems that are challenging yet solvable (~0.5 pass score)
                     score = 0.0
                     if can_compile:
-                        score = sandbox.evaluate(solution, test_code)
+                        score = sandbox.evaluate(solution, test_code, power = 1) - 0.05
                         if score <= 0.5:
                             score = 0
                         elif score <= 0.9:
