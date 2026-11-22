@@ -103,14 +103,15 @@ exit(0)
             result = container.wait(timeout=self.timeout)
             logs = container.logs(stdout=True, stderr=True).decode('utf-8')
             try:
-                score = float(logs.strip()) 
+                score = float(logs.strip())
                 norm_score = score / len(list_of_assert)
             except ValueError:
                 raise Exception
             
             if result.get('StatusCode', -1) == 0:
                 if normalized:
-                    return norm_score
+                    # 0.05 points for evaluate able to run, though max is 1.05
+                    return norm_score + 0.05
                 else:
                     return score
             return 0.0

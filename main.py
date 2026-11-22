@@ -26,8 +26,8 @@ warnings.filterwarnings(
 # 0. CONSTANTS
 # ==========================================
 # MODEL_ID = "HuggingFaceTB/SmolLM2-360M-Instruct"
-MODEL_ID = "Qwen/Qwen2.5-Coder-1.5B-Instruct"
-# MODEL_ID = "Qwen/Qwen2.5-Coder-3B-Instruct"
+# MODEL_ID = "Qwen/Qwen2.5-Coder-1.5B-Instruct"
+MODEL_ID = "Qwen/Qwen2.5-Coder-3B-Instruct"
 # MODEL_ID = "Qwen/Qwen2.5-Coder-7B-Instruct"
 # MODEL_ID = "stabilityai/stable-code-instruct-3b"
 # MODEL_ID = "meta-llama/Llama-3.2-3B-Instruct"
@@ -36,7 +36,7 @@ USE_JUDGE = False
 JUDGE_MODEL_ID = "Qwen/Qwen3-4B-Instruct-2507"
 
 DO_LOGGING = True
-LOG_PERIOD = 5
+LOG_PERIOD = 1
 LOG_FILE = f"./results/{MODEL_ID}/training_rollouts{"_judge" if USE_JUDGE else ''}.jsonl"
 
 LEARN_RATE = 5e-6
@@ -49,6 +49,8 @@ ANS_TEMP_PROP_TRAIN = 0.7          # No. of max tokens for answerer for training
 
 PROP_TOKENS_ANS_TRAIN = 256        # No. of max tokens for proposer for training answerer
 PROP_TEMP_ANS_TRAIN = 0.7          # No. of max tokens for proposer for training answerer
+
+PROP_REFERENCE_PREV_QUESTIONS = False
 
 JUDGE_TOKENS = 1024
 
@@ -369,7 +371,7 @@ def main():
             
             if can_compile:
                 score = sandbox.evaluate(solution, test_code)
-                score = power(score,3)
+                score = pow(score,2)
             else:
                 score = 0.0
             
@@ -420,14 +422,24 @@ def main():
             
         rand_ints = [random.randint(0, 1000) for _ in range(4)]
 
-        proposer_prompts = [
-            tokenizer.apply_chat_template(
-                get_proposer_prompt(val),
-                tokenize=False,
-                add_generation_prompt=True,
-            )
-            for val in rand_ints
-        ]
+        if iter > 5 and PROP_REFERENCE_PREV_QUESTIONS:
+            proposer_prompts = [
+                tokenizer.apply_chat_template(
+                    get_proposer_prompt(val, proposer_good_probs[0], proposer_good_probs[1]),
+                    tokenize=False,
+                    add_generation_prompt=True,
+                )
+                for val in rand_ints
+            ]
+        else:
+            proposer_prompts = [
+                tokenizer.apply_chat_template(
+                    get_proposer_prompt(val),
+                    tokenize=False,
+                    add_generation_prompt=True,
+                )
+                for val in rand_ints
+            ]
 
         proposer_trainer.train_dataset = Dataset.from_dict({"prompt": proposer_prompts})
         proposer_trainer.train()

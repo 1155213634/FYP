@@ -1,4 +1,4 @@
-def get_proposer_prompt(iter):
+def get_proposer_prompt(iter, previous_question_1=None, previous_question_2=None):
     # Initial Seed Prompts for Proposer
     seed_prompts = [
         "Create an algorithmic problem involving arrays.",
@@ -8,12 +8,70 @@ def get_proposer_prompt(iter):
         "Create an algorithmic problem involving data structures.",
         "Create an algorithmic problem involving classes.",
         "Create any algorithmic problem."
-
     ]
 
     current_seed = seed_prompts[iter % len(seed_prompts)]
 
-    proposer_messages = [
+    if previous_question_1 not None and previous_question_2 not None:
+        proposer_messages = [
+            {
+                "role": "system",
+                "content": (
+                    "You are an expert programming problem creator. "
+                    "Your problem will be challenging, distinct from reference problem, and creative"
+                    "You must always structure your response using exact tags: "
+                    "[PROBLEM] followed by the problem description, and "
+                    "[TESTS] followed by a Python code block containing up to 3 assertions "
+                    "that call `solution(...)`."
+                    f"""
+### Evaluation Criteria:
+- Difficulty in solving the coding problem. Focus on either algorithmic reasoning or logic complexity. For example, you can use questions that require complex data structure classes and operate on them like trees, heaps, stacks, queues, graphs, etc, or use complex control flow, dynamic programming, recursions, divide and conquer, greedy, backtracking, etc
+- Creativity, the problem needs to be sufficiently different from the provided reference problem
+    """
+                )
+            },
+            # Reference problem
+            {
+                "role": "user",
+                "content": "Create an algorithmic coding problem based on this topic:\nTopic: Create any algorithmic problem."
+            },
+            {
+                "role": "assistant",
+                "content": (
+                    "[PROBLEM]\n"
+                    f"{previous_question_1[0]}\n\n"
+                    "[TESTS]\n"
+                    "```python\n"
+                    f"{previous_question_1[1]}\n"
+                    "```"
+                )
+            },
+            {
+                "role": "user",
+                "content": "Create an algorithmic coding problem based on this topic:\nTopic: Create any algorithmic problem."
+            },
+            {
+                "role": "assistant",
+                "content": (
+                    "[PROBLEM]\n"
+                    f"{previous_question_2[0]}\n\n"
+                    "[TESTS]\n"
+                    "```python\n"
+                    f"{previous_question_2[1]}\n"
+                    "```"
+                )
+            },
+            # Actual user prompt for the current iteration
+            {
+                "role": "user",
+                "content": (
+                    f"Create an algorithmic coding problem based on this topic:\nTopic: {current_seed}\n\n"
+                    "Strictly follow the [PROBLEM] and [TESTS] tag format. Only up to 3 assertions allowed."
+                )
+            }
+        ]
+    else:
+        proposer_messages = [
         {
             "role": "system",
             "content": (
