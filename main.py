@@ -11,6 +11,7 @@ from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
 
 from prompts import get_proposer_prompt, get_answerer_prompt, get_judge_prompt, get_good_probs
 from docker_code import DockerSandbox
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from utils import clean_code_output, parse_proposer_output, validate_assertions, assert_code_parser, solution_code_parser
 from utils import check_gpu_mem, judge_response_parser, assertions_to_solution, ensure_solution_function
 
@@ -36,7 +37,7 @@ USE_JUDGE = False
 JUDGE_MODEL_ID = "Qwen/Qwen3-4B-Instruct-2507"
 
 DO_LOGGING = True
-LOG_PERIOD = 1
+LOG_PERIOD = 5
 LOG_FILE = f"./results/{MODEL_ID}/training_rollouts{"_judge" if USE_JUDGE else ''}.jsonl"
 
 LEARN_RATE = 5e-6
@@ -44,16 +45,17 @@ MAX_ITER = 50                      # No. of total loops
 GROUP_SIZE = 4                      # GRPO group size
 
 PROP_MAX_TOKEN_TRAIN = 320         # No. of max tokens for proposer for GRPO
-ANS_MAX_TOKEN_TRAIN = 256          # No. of max tokens for answerer for GRPO
+ANS_MAX_TOKEN_TRAIN = 288          # No. of max tokens for answerer for GRPO
 
 ANS_ATTEMPTS_PROP_TRAIN = 4        # No. of answerer attempts to calculate proposer difficulty score
-ANS_TOKENS_PROP_TRAIN = 256        # No. of max tokens for answerer for training proposer
+ANS_TOKENS_PROP_TRAIN = 288        # No. of max tokens for answerer for training proposer
 ANS_TEMP_PROP_TRAIN = 0.7          # No. of temp for answerer for training proposer
 ANS_SCORE_POWER = 2                # ratio of asserts passed ^ power
 
-
 PROP_REFERENCE_PREV_QUESTIONS = True
-SWITCH_PROP_REFERENCE_ITERATION = 4
+SWITCH_PROP_REFERENCE_ITERATION = 5
+
+MULTITHREADING_MAX_WORKERS = 3
 
 JUDGE_TOKENS = 512
 
@@ -127,7 +129,7 @@ def main():
     with open(LOG_FILE, "w", encoding="utf-8") as f:
         pass
 
-    sandbox = DockerSandbox(timeout_seconds=3)
+    sandbox = DockerSandbox(timeout_seconds=6)
 
     tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
     tokenizer.pad_token = tokenizer.eos_token
@@ -210,10 +212,23 @@ def main():
     check_gpu_mem()
 
     # utility functions
+    def score_sandbox_candidate(solution: str, test_code: str, power: int, proposer_scale: bool) -> float:
+        raw = sandbox.evaluate(solution, test_code, power=power)
+        if proposer_scale:
+            raw = raw - 0.05
+            if raw <= 0.5:
+                return 0.0
+            elif raw <= 0.9:
+                return 0.2
+            else:
+                return 1.0
+
+        return float(raw)
+
     def logical_assertion_reward_func(prob_desc, test_code):
         text_prompt = judge_tokenizer.apply_chat_template(get_judge_prompt(prob_desc, test_code),
                                                             tokenize=False, add_generation_prompt=True)
-        inputs = tokenizer(text_prompt, return_tensors="pt").to(judge_model.device)
+        inputs = judge_tokenizer(text_prompt, return_tensors="pt").to(judge_model.device)
         input_len = inputs["input_ids"].shape[1]
 
         with torch.no_grad():
@@ -224,7 +239,7 @@ def main():
             )
         
         output_ids = outputs[0][input_len:]
-        raw_output = tokenizer.decode(output_ids, skip_special_tokens=True)
+        raw_output = judge_tokenizer.decode(output_ids, skip_special_tokens=True)
         thinking, verdict = judge_response_parser(raw_output)
 
         score = 0.0
@@ -307,7 +322,13 @@ def main():
                     outs = answerer_model.generate(**inputs, max_new_tokens=ANS_TOKENS_PROP_TRAIN,
                                                 do_sample=True, temperature=ANS_TEMP_PROP_TRAIN,
                                                 num_return_sequences=6)
-                for out in outs:
+
+                # jobs: list of (job_id, solution, test_code, power, proposer_scale)
+                jobs = []
+                scores_by_id = {}
+                max_workers = MULTITHREADING_MAX_WORKERS  # tune based on CPU cores & Docker daemon limits
+
+                for job_id, out in enumerate(outs):
                     generated_tokens = out[input_len:]
                 
                     raw_solution = tokenizer.decode(generated_tokens, skip_special_tokens=True)
@@ -316,22 +337,27 @@ def main():
                     can_compile = True
                     try:
                         solution = ensure_solution_function(solution)
+                        jobs.append((job_id, solution, test_code, 1, True))
                     except Exception as exc:
                         can_compile = False
-                    
-                    # Reward heuristic: Target problems that are challenging yet solvable (~0.5 pass score)
-                    score = 0.0
-                    if can_compile:
-                        score = sandbox.evaluate(solution, test_code, power = 1) - 0.05
-                        if score <= 0.5:
-                            score = 0
-                        elif score <= 0.9:
-                            score = 0.2
-                        else:
-                            score = 1.0
-                    scores.append(score)
+                        scores_by_id[job_id] = 0.0
 
-                avg_score = sum(scores) / len(scores)
+                if jobs:
+                    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                        future_to_id = {
+                            executor.submit(score_sandbox_candidate, sol, tests, pwr, proposer_scale): job_id
+                            for (job_id, sol, tests, pwr, proposer_scale) in jobs
+                        }
+                        for future in as_completed(future_to_id):
+                            job_id = future_to_id[future]
+                            try:
+                                scores_by_id[job_id] = future.result()
+                            except Exception:
+                                scores_by_id[job_id] = 0.0
+
+                # Preserve candidate order if you ever need the list later
+                ordered_scores = [scores_by_id[i] for i in range(len(outs))]
+                avg_score = sum(ordered_scores) / len(ordered_scores) if ordered_scores else 0.0
                 diff_reward = 1.0 - abs(avg_score - 0.5) * 2
 
             if 0.3 <= avg_score <= 0.9:
@@ -363,33 +389,55 @@ def main():
         assert test_codes is not None
 
         rewards = []
-        for prompt, completion, test_code, prob_desc in zip(prompts, completions, test_codes, prob_descs):
+
+        # jobs: list of (job_id, solution, test_code, power, proposer_scale)
+        jobs = []
+        scores_by_id = {}
+        max_workers = MULTITHREADING_MAX_WORKERS  # tune based on CPU cores & Docker daemon limits
+        raw_sol_save = {}
+        prob_desc_save = {}
+
+        for job_id, unpack in enumerate(zip(prompts, completions, test_codes, prob_descs)):
+            prompt, completion, test_code, prob_desc = unpack
             raw_sol_text = completion[0]["content"] if isinstance(completion, list) else completion
 
             solution = ""
             can_compile = True
             try:
                 solution = ensure_solution_function(clean_code_output(raw_sol_text))
+                jobs.append((job_id, solution, test_code, ANS_SCORE_POWER, False))
             except Exception as exc:
                 can_compile = False
-            
-            if can_compile:
-                score = sandbox.evaluate(solution, test_code, power=ANS_SCORE_POWER)
-            else:
-                score = 0.0
-            
+                scores_by_id[job_id] = 0.0
+            prob_desc_save[job_id] = prob_desc
+            raw_sol_save[job_id] = raw_sol_text
 
-            # Log results
-            if iteration % LOG_PERIOD == 0: 
+        if jobs:
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                future_to_id = {
+                    executor.submit(score_sandbox_candidate, sol, tests, pwr, proposer_scale): job_id
+                    for (job_id, sol, tests, pwr, proposer_scale) in jobs
+                }
+                for future in as_completed(future_to_id):
+                    job_id = future_to_id[future]
+                    try:
+                        scores_by_id[job_id] = future.result()
+                    except Exception:
+                        scores_by_id[job_id] = 0.0
+
+        # Log results
+        if iteration % LOG_PERIOD == 0: 
+            for job in jobs:
+                job_id = job[0]
                 log_rollout(
                     proposer_completion=None,
-                    answerer_completion=solution,
-                    reward=score,
-                    metadata={"iteration" : iteration, "phase": "answerer", "problem_description": prob_desc, "test_code": test_code, "raw_sol_text": raw_sol_text}
+                    answerer_completion=job[1],
+                    reward=scores_by_id[job_id],
+                    metadata={"iteration" : iteration, "phase": "answerer", "problem_description": prob_desc_save[job_id], "test_code": job[2], "raw_sol_text": raw_sol_save[job_id]}
                 )
 
-            rewards.append(score)
-        return rewards
+        ordered_rewards = [float(scores_by_id.get(i, 0.0)) for i in range(len(completions))]
+        return ordered_rewards
 
     # initialize trainers
     proposer_trainer = GRPOTrainer(
@@ -407,10 +455,13 @@ def main():
     )
 
     # --- ALTERNATING SELF-PLAY TRAINING LOOP ---
-    for iteration in range(MAX_ITER):
+    for iteration in range(1, MAX_ITER+1):
         print(f"\n==============================")
-        print(f"=== SELF-PLAY ITERATION {iteration + 1}/{MAX_ITER} ===")
+        print(f"=== SELF-PLAY ITERATION {iteration}/{MAX_ITER} ===")
         print(f"==============================")
+
+        # check memory leak
+        # check_gpu_mem()
 
         # ----------------------------------------------------
         # PHASE 1: Train Proposer (Freeze Answerer)
@@ -426,14 +477,15 @@ def main():
         rand_ints = [random.randint(0, 1000) for _ in range(4)]
 
         if iteration >= SWITCH_PROP_REFERENCE_ITERATION and PROP_REFERENCE_PREV_QUESTIONS:
-            proposer_prompts = [
-                tokenizer.apply_chat_template(
-                    get_proposer_prompt(val, proposer_good_probs[0], proposer_good_probs[1]),
-                    tokenize=False,
-                    add_generation_prompt=True,
-                )
-                for val in rand_ints
-            ]
+            if len(proposer_good_probs) >= 2:
+                proposer_prompts = [
+                    tokenizer.apply_chat_template(
+                        get_proposer_prompt(val, proposer_good_probs[0], proposer_good_probs[1]),
+                        tokenize=False,
+                        add_generation_prompt=True,
+                    )
+                    for val in rand_ints
+                ]
         else:
             proposer_prompts = [
                 tokenizer.apply_chat_template(
@@ -484,7 +536,7 @@ def main():
             answerer_trainer.train()
 
         # Saving
-        if (iteration+1) % 10 == 0:
+        if iteration % 10 == 0:
             print("Saving final models to disk...")
             proposer_model.save_pretrained(f"./trained/{MODEL_ID}/{iteration+1}_proposer_model")
             answerer_model.save_pretrained(f"./trained/{MODEL_ID}/{iteration+1}_answerer_model")
