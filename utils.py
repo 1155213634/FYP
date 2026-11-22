@@ -56,9 +56,9 @@ def validate_assertions(test_code_str):
     except SyntaxError:
         return 0.0
 
-    # Needs to Assert 0.4
+    # Needs to Assert 0.2
     if "assert" in test_code_str:
-        score += 0.4
+        score += 0.2
 
     # Asser Less Than Four 0.3
     assertion_count = 0
@@ -66,7 +66,10 @@ def validate_assertions(test_code_str):
         for node in ast.walk(tree):
             if isinstance(node, ast.Assert):
                 assertion_count += 1
-    
+
+    if assertion_count > 0:
+       score += 0.2
+
     if assertion_count < 4:
         score += 0.3
         

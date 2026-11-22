@@ -41,7 +41,7 @@ LOG_FILE = f"./results/{MODEL_ID}/training_rollouts{"_judge" if USE_JUDGE else '
 
 LEARN_RATE = 5e-6
 MAX_ITER = 10                      # No. of total loops
-GROUP_SIZE = 6                      # GRPO group size
+GROUP_SIZE = 4                      # GRPO group size
 
 PROP_MAX_TOKEN_TRAIN = 512         # No. of max tokens for proposer for GRPO
 ANS_MAX_TOKEN_TRAIN = 256          # No. of max tokens for answerer for GRPO
@@ -302,7 +302,8 @@ def main():
             diff_reward = 0.0
             solution = None
             avg_score = 0.0
-            if assert_score > 0.9 and (judge_score > 0.9 or not USE_JUDGE):
+            # assert_score > 0.7 => have assert statement, but not at most 3
+            if assert_score > 0.7 and (judge_score > 0.9 or not USE_JUDGE):
                 # Format requirements built into the answerer prompt
                 text_prompt = tokenizer.apply_chat_template(get_answerer_prompt(prob_desc), tokenize=False, add_generation_prompt=True)
                 inputs = tokenizer(text_prompt, return_tensors="pt").to(proposer_model.device)
