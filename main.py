@@ -41,7 +41,7 @@ LOG_PERIOD = 5
 LOG_FILE = f"./results/{MODEL_ID}/training_rollouts{"_judge" if USE_JUDGE else ''}.jsonl"
 
 LEARN_RATE = 5e-6
-MAX_ITER = 50                      # No. of total loops
+MAX_ITER = 70                      # No. of total loops
 GROUP_SIZE = 4                      # GRPO group size
 
 PROP_MAX_TOKEN_TRAIN = 320         # No. of max tokens for proposer for GRPO
@@ -538,9 +538,9 @@ def main():
         # Saving
         if iteration % 10 == 0:
             print("Saving final models to disk...")
-            proposer_model.save_pretrained(f"./trained/{MODEL_ID}/{iteration+1}_proposer_model")
-            answerer_model.save_pretrained(f"./trained/{MODEL_ID}/{iteration+1}_answerer_model")
-            tokenizer.save_pretrained(f"./trained/{MODEL_ID}/{iteration+1}_tokenizer")
+            proposer_model.save_pretrained(f"./trained/{MODEL_ID}/{iteration}_proposer_model")
+            answerer_model.save_pretrained(f"./trained/{MODEL_ID}/{iteration}_answerer_model")
+            tokenizer.save_pretrained(f"./trained/{MODEL_ID}/{iteration}_tokenizer")
             print("Models saved successfully!")
 
 
