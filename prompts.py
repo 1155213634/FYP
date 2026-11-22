@@ -12,7 +12,7 @@ def get_proposer_prompt(iter, previous_question_1=None, previous_question_2=None
 
     current_seed = seed_prompts[iter % len(seed_prompts)]
 
-    if previous_question_1 not None and previous_question_2 not None:
+    if previous_question_1 is not None and previous_question_2 is not None:
         proposer_messages = [
             {
                 "role": "system",
