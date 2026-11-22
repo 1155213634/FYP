@@ -26,8 +26,8 @@ warnings.filterwarnings(
 # 0. CONSTANTS
 # ==========================================
 # MODEL_ID = "HuggingFaceTB/SmolLM2-360M-Instruct"
-MODEL_ID = "Qwen/Qwen2.5-Coder-1.5B-Instruct"
-# MODEL_ID = "Qwen/Qwen2.5-Coder-3B-Instruct"
+# MODEL_ID = "Qwen/Qwen2.5-Coder-1.5B-Instruct"
+MODEL_ID = "Qwen/Qwen2.5-Coder-3B-Instruct"
 # MODEL_ID = "Qwen/Qwen2.5-Coder-7B-Instruct"
 # MODEL_ID = "stabilityai/stable-code-instruct-3b"
 # MODEL_ID = "meta-llama/Llama-3.2-3B-Instruct"
@@ -294,7 +294,8 @@ def main():
             diff_reward = 0.0
             solution = None
             avg_score = 0.0
-            if assert_score > 0.9 and (judge_score > 0.9 or not USE_JUDGE):
+            # assert_score > 0.7 => have assert statement, but not at most 3
+            if assert_score > 0.7 and (judge_score > 0.9 or not USE_JUDGE):
                 # Format requirements built into the answerer prompt
                 text_prompt = tokenizer.apply_chat_template(get_answerer_prompt(prob_desc), tokenize=False, add_generation_prompt=True)
                 inputs = tokenizer(text_prompt, return_tensors="pt").to(proposer_model.device)
@@ -483,7 +484,7 @@ def main():
             answerer_trainer.train()
 
         # Saving
-        if (iteration+1) % 20 == 0:
+        if (iteration+1) % 10 == 0:
             print("Saving final models to disk...")
             proposer_model.save_pretrained(f"./trained/{MODEL_ID}/{iteration+1}_proposer_model")
             answerer_model.save_pretrained(f"./trained/{MODEL_ID}/{iteration+1}_answerer_model")
