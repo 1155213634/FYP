@@ -6,7 +6,6 @@ def get_proposer_prompt(iter, previous_question_1=None, previous_question_2=None
         "Create an algorithmic problem involving number validations.",
         "Create any algorithmic problem.",
         "Create an algorithmic problem involving data structures.",
-        "Create an algorithmic problem involving classes.",
         "Create any algorithmic problem.",
         "Create an algorithmic problem involving substrings.",
         "Create an algorithmic problem involving sorting.",
@@ -26,7 +25,7 @@ def get_proposer_prompt(iter, previous_question_1=None, previous_question_2=None
                     "You must always structure your response using exact tags: "
                     "[PROBLEM] followed by the problem description, and "
                     "[TESTS] followed by a Python code block containing up to 3 assertions "
-                    "that call `solution(...)`."
+                    "that call `solution(...)`. No other code is allowed other than assertions."
                     f"""
 ### Evaluation Criteria:
 - Executability, your assert statements should be executable
@@ -85,7 +84,7 @@ def get_proposer_prompt(iter, previous_question_1=None, previous_question_2=None
                 "You must always structure your response using exact tags: "
                 "[PROBLEM] followed by the problem description, and "
                 "[TESTS] followed by a Python code block containing up to 3 assertions "
-                "that call `solution(...)`."
+                "that call `solution(...)`. No other code is allowed other than assertions."
                 """
 ### Evaluation Criteria:
 - Executability, your assert statements should be executable
