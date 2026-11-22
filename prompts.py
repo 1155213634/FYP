@@ -7,7 +7,10 @@ def get_proposer_prompt(iter, previous_question_1=None, previous_question_2=None
         "Create any algorithmic problem.",
         "Create an algorithmic problem involving data structures.",
         "Create an algorithmic problem involving classes.",
-        "Create any algorithmic problem."
+        "Create any algorithmic problem.",
+        "Create an algorithmic problem involving substrings.",
+        "Create an algorithmic problem involving sorting.",
+        "Create an algorithmic problem involving searching."
     ]
 
     current_seed = seed_prompts[iter % len(seed_prompts)]
@@ -18,7 +21,8 @@ def get_proposer_prompt(iter, previous_question_1=None, previous_question_2=None
                 "role": "system",
                 "content": (
                     "You are an expert programming problem creator. "
-                    "Your problem will be challenging, distinct from reference problem, and creative"
+                    "Create a problem that is strictly harder and more intricate than the two "
+                    "previous assistant problems provided in this conversation, while staying clear and solvable.\n"
                     "You must always structure your response using exact tags: "
                     "[PROBLEM] followed by the problem description, and "
                     "[TESTS] followed by a Python code block containing up to 3 assertions "
@@ -96,11 +100,20 @@ def get_proposer_prompt(iter, previous_question_1=None, previous_question_2=None
             "role": "assistant",
             "content": (
                 "[PROBLEM]\n"
-                "Write a function `solution(s)` that takes a string `s` and returns the reversed string.\n\n"
+                "Write a function `solution(s, k)` that takes a string `s` and a positive integer `k`.\n\n"
+                "Split `s` into blocks of size `2k` from left to right. In each block:\n"
+                "- Reverse the first `k` characters.\n"
+                "- Leave the remaining characters in that block unchanged.\n"
+                "- If fewer than `k` characters remain at the end of `s`, reverse all of them.\n\n"
+                "Constraints:\n"
+                "- `1 <= len(s) <= 10^4\n"
+                "- `1 <= k <= 10^4\n"
+                "- Target `O(n)` time.\n\n"
                 "[TESTS]\n"
                 "```python\n"
-                "assert solution(\"hello\") == \"olleh\"\n"
-                "assert solution(\"world\") == \"dlrow\"\n"
+                "assert solution(\"abcdefg\", 2) == \"bacdfeg\"\n"
+                "assert solution(\"abcd\", 2) == \"bacd\"\n"
+                "assert solution(\"a\", 5) == \"a\"\n"
                 "```"
             )
         },
@@ -112,14 +125,21 @@ def get_proposer_prompt(iter, previous_question_1=None, previous_question_2=None
             "role": "assistant",
             "content": (
                 "[PROBLEM]\n"
-                "Write a function `solution(s)` that takes an array `l` and returns the sum of all elements in the array.\n\n"
+                "Write a function `solution(nums)` that takes a list of integers `nums` "
+                "and returns the alternating sum of its elements: add elements at even "
+                "indices (0, 2, 4, ...) and subtract elements at odd indices (1, 3, 5, ...). "
+                "Return 0 if `nums` is empty.\n\n"
+                "Constraints:\n"
+                "- 0 <= len(nums) <= 10^4\n"
+                "- -10^4 <= nums[i] <= 10^4\n"
+                "- Aim for O(n) time.\n\n"
                 "[TESTS]\n"
                 "```python\n"
-                "assert solution([1, 2, 3]) == 6\n"
-                "assert solution([3, 3, 3]) == 9\n"
-                "assert solution([0]) == 0\n"
+                "assert solution([1, 2, 3, 4]) == -2\n"
+                "assert solution([10, 5, 2]) == 7\n"
+                "assert solution([]) == 0\n"
                 "```"
-            )
+            ),
         },
         # Actual user prompt for the current iteration
         {
