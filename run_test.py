@@ -5,8 +5,8 @@ from test_mbppplus import test_model_performance_mbppplus
 from test_ame import test_model_performance_ame
 import traceback
 
-starting = 0
-max_steps = 70
+starting = 10
+max_steps = 60
 step_size = 10
 MODEL_ID = "Qwen/Qwen2.5-Coder-3B-Instruct"
 QLoRA = False

@@ -27,11 +27,12 @@ def extract_aime_answer(response_text: str) -> int | None:
 
     if candidate is not None:
         # Clean potential formatting like commas or currency symbols (e.g., "1,200" or "$500")
-        candidate_cleaned = re.sub(r'[^\d]', '', candidate)
-        if candidate_cleaned.isdigit():
-            # AIME answers are strictly 0 to 999 (sometimes formatted with leading zeros)
+        candidate_cleaned = re.sub(r'(?!^)-|[^\d-]', '', candidate.strip())
+            
+        # Validate that it's a proper integer (optional '-' followed by digits)
+        if re.fullmatch(r'-?\d+', candidate_cleaned):
             val = int(candidate_cleaned)
-            return val % 1000  # or keep as integer depending on formatting
+            return val
             
     return None
 
