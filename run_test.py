@@ -7,12 +7,12 @@ import traceback
 
 starting = 0
 max_steps = 70
-step_size = 70
+step_size = 10
 MODEL_ID = "Qwen/Qwen2.5-Coder-3B-Instruct"
 QLoRA = False
 Judged = False
 
-for func in [test_model_performance_ame]:
+for func in [test_model_performance_humanevalplus, test_model_performance_LeetCodeDataset, test_model_performance_mbppplus, test_model_performance_ame]:
     i = starting
     while i <= max_steps:
         try:

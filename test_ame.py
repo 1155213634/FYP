@@ -99,7 +99,7 @@ def test_model_performance_ame(iter, model_path, QLoRA, Judged, adapter_path=Non
     else:
         OUTPUT_DIR = f"./results/{model_path}"
 
-    OUTPUT_FILE = os.path.join(OUTPUT_DIR, f"evaluation_results_{iter}_MBPPPlus.json")
+    OUTPUT_FILE = os.path.join(OUTPUT_DIR, f"evaluation_results_{iter}_AME.json")
     STORE_LOG = True
 
     os.makedirs(OUTPUT_DIR, exist_ok=True)
