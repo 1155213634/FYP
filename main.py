@@ -33,7 +33,7 @@ MODEL_ID = "Qwen/Qwen2.5-Coder-3B-Instruct"
 # MODEL_ID = "stabilityai/stable-code-instruct-3b"
 # MODEL_ID = "meta-llama/Llama-3.2-3B-Instruct"
 
-USE_JUDGE = False
+USE_JUDGE = True
 JUDGE_MODEL_ID = "Qwen/Qwen3-4B-Instruct-2507"
 
 DO_LOGGING = True
@@ -41,7 +41,7 @@ LOG_PERIOD = 5
 LOG_FILE = f"./results/{MODEL_ID}/training_rollouts{"_judge" if USE_JUDGE else ''}.jsonl"
 
 LEARN_RATE = 5e-6
-MAX_ITER = 70                      # No. of total loops
+MAX_ITER = 150                      # No. of total loops
 GROUP_SIZE = 4                      # GRPO group size
 
 PROP_MAX_TOKEN_TRAIN = 320         # No. of max tokens for proposer for GRPO
@@ -57,11 +57,11 @@ SWITCH_PROP_REFERENCE_ITERATION = 5
 
 MULTITHREADING_MAX_WORKERS = 3
 
-JUDGE_TOKENS = 512
+JUDGE_TOKENS = 256
 
-QUANTIZATION = False
-LORA_RANK = 16
-LORA_ALPHA = 32
+QUANTIZATION = True
+LORA_RANK = 32
+LORA_ALPHA = 64
 LORA_DROPOUT = 0.05
 
 # Not constant but i need it global as a crutch

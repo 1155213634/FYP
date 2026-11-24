@@ -5,6 +5,7 @@ import re
 import gc
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
+from peft import AutoPeftModelForCausalLM
 
 from docker_code import DockerSandbox
 from utils import assertions_to_solution, clean_code_output, ensure_solution_function
@@ -125,7 +126,7 @@ def test_model_performance_mbppplus(iter, model_path, QLoRA, Judged, adapter_pat
             solution = clean_solution
 
         # Evaluate solution using DockerSandbox
-        score = sandbox.evaluate(solution_code=solution, test_code=test_code, normalized=True)
+        score = sandbox.evaluate(solution_code=solution, test_code=test_code, normalized=True, power=1, successful_run_score=False)
         
         # Must satisfy ALL assertions to be considered a success
         if score == 1:

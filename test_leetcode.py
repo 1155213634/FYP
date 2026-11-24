@@ -147,13 +147,13 @@ def test_model_performance_LeetCodeDataset(iter, model_path, QLoRA, Judged, adap
 
         solution = clean_code_output(generated_solution)
         try:
-            solution = ensure_solution_function(generated_solution)
+            solution = ensure_solution_function(solution)
         except Exception as exc:
             pass
 
         # Evaluate using sandbox
         LeetCodeDataset_test_code = ast.unparse(modified_tree)
-        score = sandbox.evaluate(solution, LeetCodeDataset_test_code)
+        score = sandbox.evaluate(solution, LeetCodeDataset_test_code, normalized=True, power=1, successful_run_score=False)
         
         # Must satisfy ALL assertions to be considered a success
         if score == 1:

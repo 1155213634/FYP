@@ -337,6 +337,30 @@ def f(input:str):
 
     return answerer_messages
 
+def get_ame_answerer_prompt(problem):
+    answerer_messages = [
+                {
+                    "role": "system", 
+                    "content": ( 
+                        "You are a math problem solver\n"
+                        "You can solve a problem step by step\n"
+                        "Then provide the final answer with\n"
+                        "\\boxed{}"
+                        ""
+                    )
+                },
+                {
+                "role": "user",
+                "content": (
+                    "Solve the following math problem step by step. Put your answer inside \\boxed{}.\n"
+                    f"{problem}"
+                    "Remember to put your answer inside \\boxed{}."
+                )
+                },
+            ]
+    
+    return answerer_messages
+
 
 def get_good_probs():
     proposer_good_probs = [

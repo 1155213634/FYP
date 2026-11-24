@@ -7,7 +7,7 @@ from peft import AutoPeftModelForCausalLM
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 
 from docker_code import DockerSandbox
-from utils import solution_code_parser, human_eval_solution_parser
+from utils import human_eval_solution_parser
 from prompts import get_human_eval_answerer_prompt
 
 def test_model_performance_humanevalplus(iter, model_path, QLoRA, Judged, adapter_path=None, testset="humaneval", store_log=False):
