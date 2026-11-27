@@ -9,6 +9,8 @@ training_rollouts.jsonl
 test_question_and_assert.py
 test_solver.py
 results/
+my_test.py
+ready/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
